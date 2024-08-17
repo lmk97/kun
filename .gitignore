@@ -1,0 +1,6 @@
+/.vscode/
+/dist/
+/include/
+/lib/
+
+/Makefile
