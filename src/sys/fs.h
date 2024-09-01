@@ -4,7 +4,7 @@
 #include "util/constants.h"
 
 #if defined(KUN_PLATFORM_UNIX)
-#include "posix/fs.h"
+#include "unix/fs.h"
 #elif defined(KUN_PLATFORM_WIN32)
 #include "win/fs.h"
 #endif

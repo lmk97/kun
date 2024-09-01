@@ -2,10 +2,10 @@
 
 #ifdef KUN_PLATFORM_UNIX
 
-#include <string.h>
 #include <errno.h>
-#include <unistd.h>
 #include <limits.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "util/sys_err.h"
 
@@ -20,6 +20,18 @@ Result<BString> getCwd() {
     }
     result.resize(strlen(buf));
     return result;
+}
+
+Result<BString> getHomeDir() {
+    auto home = ::getenv("HOME");
+    if (home == nullptr) {
+        return SysErr::err("'HOME' is not found");
+    }
+    return BString(home, strlen(home));
+}
+
+Result<BString> getAppDir() {
+    return getHomeDir();
 }
 
 }

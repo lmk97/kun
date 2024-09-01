@@ -1,16 +1,12 @@
 #ifndef KUN_LOOP_THREAD_POOL_H
 #define KUN_LOOP_THREAD_POOL_H
 
-#include <stdint.h>
-
-#include <vector>
 #include <thread>
-
-#include "env/environment.h"
+#include <vector>
 
 namespace kun {
 
-class AsyncEvent;
+class AsyncHandler;
 
 class ThreadPool {
 public:
@@ -22,14 +18,14 @@ public:
 
     ThreadPool& operator=(ThreadPool&&) = delete;
 
-    ThreadPool(AsyncEvent* asyncEvent) : asyncEvent(asyncEvent) {}
+    ThreadPool(AsyncHandler* asyncHandler);
 
-    void init(uint32_t size);
+    ~ThreadPool() = default;
 
     void joinAll();
 
 private:
-    AsyncEvent* asyncEvent;
+    AsyncHandler* asyncHandler;
     std::vector<std::thread> threads;
 };
 

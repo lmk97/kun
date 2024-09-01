@@ -3,7 +3,11 @@
 
 #include "util/constants.h"
 #include "util/type_def.h"
-#include "sys/io.h"
+#include "util/util.h"
+
+#ifdef KUN_PLATFORM_WIN32
+#include "win/util.h"
+#endif
 
 namespace kun {
 
@@ -39,16 +43,20 @@ public:
 
 inline Channel::~Channel() {
     if (fd != KUN_INVALID_FD) {
-    #if defined(KUN_PLATFORM_UNIX)
-        bool isSuccess = ::close(fd) == 0;
-    #elif defined(KUN_PLATFORM_WIN32)
-        bool isSuccess = ::closesocket(fd) == 0;
-    #endif
-        if (isSuccess) {
+        #if defined(KUN_PLATFORM_UNIX)
+        if (::close(fd) == 0) {
             fd = KUN_INVALID_FD;
         } else {
-            sys::eprintln("ERROR: '~Channel' close failed");
+            KUN_LOG_ERR(errno);
         }
+        #elif defined(KUN_PLATFORM_WIN32)
+        if (::closesocket(fd) == 0) {
+            fd = KUN_INVALID_FD;
+        } else {
+            auto errCode = win::convertError(::WSAGetLastError());
+            KUN_LOG_ERR(errCode);
+        }
+        #endif
     }
 }
 

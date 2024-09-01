@@ -9,6 +9,7 @@
 #include <sys/epoll.h>
 
 #include "env/environment.h"
+#include "loop/async_handler.h"
 #include "loop/channel.h"
 
 namespace kun {
@@ -37,6 +38,7 @@ public:
 
 private:
     Environment* env;
+    AsyncHandler asyncHandler;
     uint64_t channelCount{0};
     int backendFd;
 };

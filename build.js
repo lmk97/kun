@@ -3,47 +3,32 @@ const os = require('node:os');
 const zlib = require('node:zlib');
 const childProcess = require('node:child_process');
 
-function getBuildType() {
-    for (let i = 0, j = -1; i < process.argv.length; i++) {
-        const name = process.argv[i];
-        if (j === -1 && name.endsWith('.js')) {
-            j = i + 1;
-            continue;
-        }
-        if (j === -1) {
-            continue;
-        }
-        if (name === '--clean') {
-            return 'clean';
-        }
-        if (name === '--release') {
-            return 'release';
-        }
-    }
-    return 'debug';
-}
-
 function untar(buf) {
-    const readString = (u8buf, offset, length) => {
+    const readString = (u8Arr, offset, length) => {
         let result = '';
         for (let i = offset; i < offset + length; i++) {
-            if (u8buf[i] !== 0) {
-                result += String.fromCharCode(u8buf[i]);
+            if (u8Arr[i] !== 0) {
+                result += String.fromCharCode(u8Arr[i]);
             } else {
                 break;
             }
         }
         return result;
     };
+    let buffer;
+    let offset;
+    if (ArrayBuffer.isView(buf)) {
+        buffer = buf.buffer;
+        offset = buf.byteOffset;
+    } else {
+        buffer = buf;
+        offset = 0;
+    }
+    const u8Arr = new Uint8Array(buffer, offset, buf.byteLength);
     const result = [];
-    let offset = 0;
-    while (offset < buf.byteLength) {
-        let data;
-        if (ArrayBuffer.isView(buf)) {
-            data = new Uint8Array(buf.buffer, offset, 512);
-        } else {
-            data = new Uint8Array(buf, offset, 512);
-        }
+    offset = 0;
+    while (offset < u8Arr.byteLength) {
+        const data = u8Arr.subarray(offset, offset + 512);
         if (data[0] === 0) {
             offset += 512;
             continue;
@@ -74,11 +59,7 @@ function untar(buf) {
         if (header.typeflag === '0') {
             header.fileType = 'file';
             header.filePath = header.name;
-            if (ArrayBuffer.isView(buf)) {
-                header.fileData = new Uint8Array(buf.buffer, offset, header.size);
-            } else {
-                header.fileData = new Uint8Array(buf, offset, header.size);
-            }
+            header.fileData = u8Arr.subarray(offset, offset + header.size);
             offset += header.size;
             const remaining = 512 - (header.size % 512);
             if (remaining > 0 && remaining < 512) {
@@ -111,6 +92,25 @@ async function ungzip(srcPath, dstPath) {
         });
         rs.pipe(gz).pipe(ws);
     });
+}
+
+function getBuildType() {
+    for (let i = 0, j = -1; i < process.argv.length; i++) {
+        const name = process.argv[i];
+        if (j === -1) {
+            if (name.endsWith('.js')) {
+                j = i + 1;
+            }
+            continue;
+        }
+        if (name === '--clean') {
+            return 'clean';
+        }
+        if (name === '--release') {
+            return 'release';
+        }
+    }
+    return 'debug';
 }
 
 async function fetchDeps(config) {
@@ -157,7 +157,7 @@ async function fetchDeps(config) {
                         }
                     });
                 } else {
-                    console.log(`ERROR: Unzip '${targzPath}'`);
+                    console.log(`ERROR: Ungzip '${targzPath}'`);
                     fs.unlinkSync(depIncludeDir);
                 }
                 fs.unlinkSync(tarPath);
@@ -187,7 +187,7 @@ async function fetchDeps(config) {
                 console.log(`Exists      '${gzPath}'`);
             }
             if (fs.existsSync(gzPath)) {
-                console.log(`Unzip       '${gzPath}' to ${libPath}`);
+                console.log(`Ungzip      '${gzPath}' to '${libPath}'`);
                 const isSuccess = await ungzip(gzPath, libPath);
                 if (isSuccess) {
                     console.log(`Resolved    '${libPath}'`);
@@ -324,7 +324,7 @@ function createMakefile(config) {
                 libs += ' ' + convertPath(libPath, config.platform);
             }
         }
-        cxxflags += ' /std:c++17 /utf-8 /EHsc /wd4100 /wd4458 /wd4127 /nologo /DUNICODE /DWIN32_LEAN_AND_MEAN /DV8_COMPRESS_POINTERS';
+        cxxflags += ' /std:c++17 /utf-8 /EHsc /wd4100 /wd4458 /wd4127 /wd4003 /nologo /DUNICODE /DWIN32_LEAN_AND_MEAN /DV8_COMPRESS_POINTERS';
         if (config.buildType === 'realease') {
             cxxflags += ' /O2';
         } else {
@@ -371,9 +371,9 @@ function createMakefile(config) {
         }
         content += `\n${objectPath}: ${sourcePath} ${includePaths}\n`;
         if (config.platform === 'win32') {
-            content += `\tcl.exe ${cxxflags} ${includes} /c ${sourcePath} /Fo${objectPath}\n`;
+            content += `\tcl.exe ${cxxflags} ${includes} /c /Tp${sourcePath} /Fo${objectPath}\n`;
         } else {
-            content += `\tg++ -c ${cxxflags} ${includes} ${sourcePath} -o ${objectPath}\n`;
+            content += `\tg++ ${cxxflags} ${includes} -c ${sourcePath} -o ${objectPath}\n`;
         }
     }
     fs.writeFileSync('./Makefile', content);

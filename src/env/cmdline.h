@@ -1,11 +1,14 @@
 #ifndef KUN_ENV_CMDLINE_H
 #define KUN_ENV_CMDLINE_H
 
-#include <unordered_map>
 #include <charconv>
 #include <system_error>
+#include <unordered_map>
+#include <vector>
 
 #include "util/bstring.h"
+#include "util/result.h"
+#include "util/sys_err.h"
 
 namespace kun {
 
@@ -21,17 +24,25 @@ public:
 
     Cmdline(int argc, char** argv);
 
+    ~Cmdline() = default;
+
     template<typename T>
-    T get(int optionName) const {
+    Result<T> get(int optionName) const {
         static_assert(
             std::is_same_v<T, BString> ||
             std::is_integral_v<T> ||
             std::is_floating_point_v<T>
         );
-        auto optionValue = getDefaultValue(optionName);
+        BString optionValue;
         auto iter = options.find(optionName);
         if (iter != options.end()) {
             optionValue = BString::view(iter->second);
+        } else {
+            if (auto result = getDefaultValue(optionName)) {
+                optionValue = result.unwrap();
+            } else {
+                return result.err();
+            }
         }
         if constexpr (std::is_same_v<T, BString>) {
             return optionValue;
@@ -39,8 +50,11 @@ public:
             const char* first = optionValue.data();
             auto last = first + optionValue.length();
             T t{};
-            std::from_chars(first, last, t);
-            return t;
+            auto result = std::from_chars(first, last, t);
+            if (result.ec == std::errc()) {
+                return t;
+            }
+            return SysErr(SysErr::INVALID_ARGUMENT);
         }
     }
 
@@ -56,7 +70,7 @@ public:
         return options;
     }
 
-    const std::unordered_map<BString, BString, BStringHash>& getArguments() const {
+    const std::vector<BString>& getArguments() const {
         return arguments;
     }
 
@@ -68,12 +82,12 @@ public:
     };
 
 private:
-    BString getDefaultValue(int optionName) const;
+    Result<BString> getDefaultValue(int optionName) const;
 
     BString programPath;
     BString scriptPath;
     std::unordered_map<int, BString> options;
-    std::unordered_map<BString, BString, BStringHash> arguments;
+    std::vector<BString> arguments;
 };
 
 }

@@ -49,7 +49,7 @@ public:
 
     enum {
         SUCCESS = 10000,
-        UNKNOWN = SUCCESS,
+        UNKNOWN_ERROR,
         RUNTIME_ERROR,
         INVALID_ARGUMENT,
         INVALID_CHARSET,

@@ -15,6 +15,14 @@ inline Result<BString> getCwd() {
     return KUN_SYS::getCwd();
 }
 
+inline Result<BString> getHomeDir() {
+    return KUN_SYS::getHomeDir();
+}
+
+inline Result<BString> getAppDir() {
+    return KUN_SYS::getAppDir();
+}
+
 }
 
 #endif

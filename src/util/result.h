@@ -22,8 +22,6 @@ public:
 
     Result& operator=(Result&&) = delete;
 
-    Result(const T& t) : value(t), errCode(0) {}
-
     Result(T&& t) : value(std::move(t)), errCode(0) {}
 
     Result(SysErr sysErr) : errCode(sysErr.code) {}
@@ -46,10 +44,18 @@ public:
     T&& expect(const BString& str) {
         if (!SysErr::isSuccess(errCode)) {
             if (!str.empty()) {
-                fprintf(stderr, "\033[0;31mERROR\033[0m: %s\n", str.c_str());
+                fprintf(
+                    stderr,
+                    "\033[0;31mERROR\033[0m: %s\n",
+                    str.c_str()
+                );
             } else {
                 auto [code, phrase] = err();
-                fprintf(stderr, "\033[0;31mERROR\033[0m: (%d) %s\n", code, phrase);
+                fprintf(
+                    stderr,
+                    "\033[0;31mERROR\033[0m: (%d) %s\n",
+                    code, phrase
+                );
             }
             exit(EXIT_FAILURE);
         }

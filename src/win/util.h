@@ -58,7 +58,7 @@ public:
         }
     }
 
-    const wchar_t* data() {
+    wchar_t* data() {
         return buf;
     }
 

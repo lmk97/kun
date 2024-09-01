@@ -2,21 +2,20 @@
 
 #ifdef KUN_PLATFORM_UNIX
 
+#include <errno.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
+#include "sys/path.h"
+#include "util/scope_guard.h"
 #include "util/sys_err.h"
 #include "util/util.h"
-#include "util/scope_guard.h"
-#include "sys/io.h"
 
-using kun::util::joinPath;
-using kun::sys::eprintln;
+using kun::sys::joinPath;
 
 namespace KUN_SYS {
 
@@ -27,8 +26,7 @@ Result<BString> readFile(const BString& path) {
     }
     ON_SCOPE_EXIT {
         if (::close(fd) == -1) {
-            auto [code, phrase] = SysErr(errno);
-            eprintln("ERROR: 'close' ({}) {}", code, phrase);
+            KUN_LOG_ERR(errno);
         }
     };
     struct stat st;
@@ -95,8 +93,7 @@ Result<bool> removeDir(const BString& path) {
     }
     ON_SCOPE_EXIT {
         if (::closedir(dp) == -1) {
-            auto [code, phrase] = SysErr(errno);
-            eprintln("ERROR: 'closedir' ({}) {}", code, phrase);
+            KUN_LOG_ERR(errno);
         }
     };
     struct dirent* de = nullptr;

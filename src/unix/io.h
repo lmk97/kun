@@ -5,10 +5,10 @@
 
 #ifdef KUN_PLATFORM_UNIX
 
-#include <stdio.h>
-#include <stddef.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include "util/bstring.h"
 #include "util/result.h"

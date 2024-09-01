@@ -1,12 +1,16 @@
 #ifndef KUN_ENV_ENVIRONMENT_H
 #define KUN_ENV_ENVIRONMENT_H
 
+#include <vector>
+
 #include "v8.h"
-#include "env/options.h"
+#include "env/cmdline.h"
+#include "util/constants.h"
 
 namespace kun {
 
 class EventLoop;
+class EsModule;
 
 class Environment {
 public:
@@ -18,22 +22,24 @@ public:
 
     Environment& operator=(Environment&&) = delete;
 
-    Environment(Options* options);
+    Environment(Cmdline* cmdline);
 
     ~Environment() = default;
 
-    Options* getOptions() const {
-        return options;
+    void run(ExposedScope exposedScope);
+
+    void runMicrotask();
+
+    Cmdline* getCmdline() const {
+        return cmdline;
     }
 
     EventLoop* getEventLoop() const {
         return eventLoop;
     }
 
-    void setEventLoop(EventLoop* eventLoop) {
-        if (this->eventLoop == nullptr) {
-            this->eventLoop = eventLoop;
-        }
+    EsModule* getEsModule() const {
+        return esModule;
     }
 
     v8::Isolate* getIsolate() const {
@@ -44,11 +50,44 @@ public:
         return context.Get(isolate);
     }
 
+    void pushRejection(
+        v8::Local<v8::Promise> promise,
+        v8::Local<v8::Value> value
+    ) {
+        unhandledRejections.emplace_back(isolate, promise);
+        unhandledRejections.emplace_back(isolate, value);
+    }
+
+    void popRejection() {
+        if (!unhandledRejections.empty()) {
+            unhandledRejections.pop_back();
+            unhandledRejections.pop_back();
+        }
+    }
+
+    BString getKunDir() const {
+        return BString::view(kunDir);
+    }
+
+    BString getDepsDir() const {
+        return BString::view(depsDir);
+    }
+
+    static Environment* from(v8::Local<v8::Context> context) {
+        return static_cast<Environment*>(
+            context->GetAlignedPointerFromEmbedderData(1)
+        );
+    }
+
 private:
-    Options* options;
-    EventLoop* eventLoop{ nullptr };
+    Cmdline* cmdline;
+    EventLoop* eventLoop;
+    EsModule* esModule;
     v8::Isolate* isolate;
     v8::Global<v8::Context> context;
+    std::vector<v8::Global<v8::Value>> unhandledRejections;
+    BString kunDir;
+    BString depsDir;
 };
 
 }

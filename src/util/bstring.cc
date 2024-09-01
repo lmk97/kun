@@ -1,11 +1,12 @@
 #include "util/bstring.h"
 
-#include <stdio.h>
 #include <ctype.h>
 
 #include <algorithm>
 #include <functional>
 #include <string_view>
+
+#include "util/util.h"
 
 namespace kun {
 
@@ -48,7 +49,7 @@ const char* BString::c_str() const {
 }
 
 BString& BString::append(const char* s, size_t len) {
-    if (len == 0) {
+    if (s == nullptr || len == 0) {
         return *this;
     }
     auto thisLen = length();
@@ -184,14 +185,14 @@ void BString::reserve(size_t capacity) {
     if (kind == BStringKind::HEAP) {
         auto p = realloc(heap.data, capacity + 1);
         if (p == nullptr) {
-            fprintf(stderr, "\033[0;31mERROR\033[0m: 'BString.reserve' out of memory\n");
+            KUN_LOG_ERR("'BString.reserve' out of memory");
             return;
         }
         heap.data = static_cast<char*>(p);
     } else {
         auto p = malloc(capacity + 1);
         if (p == nullptr) {
-            fprintf(stderr, "\033[0;31mERROR\033[0m: 'BString.reserve' out of memory\n");
+            KUN_LOG_ERR("'BString.reserve' out of memory");
             return;
         }
         auto buf = static_cast<char*>(p);

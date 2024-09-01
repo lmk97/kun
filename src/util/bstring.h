@@ -1,14 +1,15 @@
 #ifndef KUN_UTIL_BSTRING_H
 #define KUN_UTIL_BSTRING_H
 
-#include <stdlib.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include <utility>
 #include <charconv>
 #include <system_error>
+#include <utility>
 
 #include "util/constants.h"
 
@@ -156,7 +157,10 @@ inline BString::BString(const char* s, size_t len) {
 
 template<typename T>
 inline BString::BString(T t) : BString(t, strlen(t)) {
-    static_assert(std::is_same_v<T, const char*> || std::is_same_v<T, char*>);
+    static_assert(
+        std::is_same_v<T, const char*> ||
+        std::is_same_v<T, char*>
+    );
 }
 
 template<size_t N>
@@ -179,6 +183,8 @@ inline BString::BString(const BString& str) {
         heap.length = str.length();
         setHeapCapacity(BStringKind::RODATA, str.capacity());
     } else {
+        printf("====== BString(const BString& str) ====== %.*s\n",
+            static_cast<int>(str.length()), str.data());
         setStackLength(0);
         append(str);
     }
@@ -188,11 +194,15 @@ inline BString& BString::operator=(const BString& str) {
     if (this == &str) {
         return *this;
     }
-    if (getKind() != BStringKind::HEAP && str.getKind() == BStringKind::RODATA) {
+    if (getKind() != BStringKind::HEAP &&
+        str.getKind() == BStringKind::RODATA
+    ) {
         heap.data = const_cast<char*>(str.data());
         heap.length = str.length();
         setHeapCapacity(BStringKind::RODATA, str.capacity());
     } else {
+        printf("====== BString& operator=(const BString& str) ====== %.*s\n",
+            static_cast<int>(str.length()), str.data());
         resize(0);
         append(str);
     }
@@ -215,7 +225,9 @@ inline BString& BString::operator=(BString&& str) noexcept {
     if (this == &str) {
         return *this;
     }
-    if (getKind() != BStringKind::HEAP && str.getKind() != BStringKind::STACK) {
+    if (getKind() != BStringKind::HEAP &&
+        str.getKind() != BStringKind::STACK
+    ) {
         heap = std::move(str.heap);
         setHeapCapacity(str.getKind(), str.capacity());
     } else {
@@ -311,7 +323,10 @@ inline BString BString::substring(size_t begin, size_t end) const {
 
 template<typename T>
 inline BString& BString::operator=(T t) {
-    static_assert(std::is_same_v<T, const char*> || std::is_same_v<T, char*>);
+    static_assert(
+        std::is_same_v<T, const char*> ||
+        std::is_same_v<T, char*>
+    );
     resize(0);
     append(t, strlen(t));
     return *this;
@@ -402,7 +417,10 @@ inline BString BString::format(const BString& fmt, TS&&... args) {
         } else if constexpr (std::is_same_v<T, char>) {
             char s[] = {t};
             result.append(s, 1);
-        } else if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+        } else if constexpr (
+            std::is_integral_v<T> ||
+            std::is_floating_point_v<T>
+        ) {
             char s[64];
             auto [ptr, ec] = std::to_chars(s, s + sizeof(s), t);
             if (ec == std::errc()) {
@@ -410,7 +428,10 @@ inline BString BString::format(const BString& fmt, TS&&... args) {
             }
         } else if constexpr (std::is_same_v<T, BString>) {
             result += t;
-        } else if constexpr (std::is_same_v<T, const char*> || std::is_same_v<T, char*>) {
+        } else if constexpr (
+            std::is_same_v<T, const char*> ||
+            std::is_same_v<T, char*>
+        ) {
             result.append(t, strlen(t));
         }
     }(std::forward<TS>(args)), ...);

@@ -151,7 +151,7 @@ int convertError(int code) {
     case ERROR_NO_UNICODE_TRANSLATION:
         return SysErr::INVALID_CHARSET;
     default:
-        return SysErr::UNKNOWN;
+        return SysErr::UNKNOWN_ERROR;
     }
 }
 

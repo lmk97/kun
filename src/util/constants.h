@@ -29,36 +29,36 @@
 
 #if defined(KUN_PLATFORM_UNIX)
 #define KUN_SYS kun::unix
-#define KUN_PATH_SEP "/"
+#define KUN_PATH_SEPARATOR "/"
 #elif defined(KUN_PLATFORM_WIN32)
 #define KUN_SYS kun::win
-#define KUN_PATH_SEP "\\"
+#define KUN_PATH_SEPARATOR "\\"
 #endif
 
 #define KUN_V8_USINGS \
-    using v8::Isolate; \
-    using v8::Context; \
-    using v8::HandleScope; \
-    using v8::EscapableHandleScope; \
-    using v8::Value; \
-    using v8::Object; \
     using v8::Array; \
-    using v8::Promise; \
-    using v8::Function; \
-    using v8::Symbol; \
-    using v8::String; \
-    using v8::Number; \
-    using v8::Boolean; \
     using v8::ArrayBuffer; \
-    using v8::Uint8Array; \
+    using v8::Boolean; \
+    using v8::Context; \
     using v8::DataView; \
-    using v8::ObjectTemplate; \
+    using v8::EscapableHandleScope; \
+    using v8::Function; \
+    using v8::FunctionCallbackInfo; \
     using v8::FunctionTemplate; \
-    using v8::PropertyAttribute; \
-    using v8::MaybeLocal; \
-    using v8::Local; \
     using v8::Global; \
-    using v8::FunctionCallbackInfo
+    using v8::HandleScope; \
+    using v8::Isolate; \
+    using v8::Local; \
+    using v8::MaybeLocal; \
+    using v8::Number; \
+    using v8::Object; \
+    using v8::ObjectTemplate; \
+    using v8::Promise; \
+    using v8::PropertyAttribute; \
+    using v8::String; \
+    using v8::Symbol; \
+    using v8::Uint8Array; \
+    using v8::Value
 
 namespace kun {
 

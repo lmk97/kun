@@ -12,6 +12,10 @@ namespace KUN_SYS {
 
 Result<BString> getCwd();
 
+Result<BString> getHomeDir();
+
+Result<BString> getAppDir();
+
 }
 
 #endif

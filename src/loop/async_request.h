@@ -1,22 +1,22 @@
 #ifndef KUN_LOOP_ASYNC_REQUEST_H
 #define KUN_LOOP_ASYNC_REQUEST_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "v8.h"
-#include "sys/io.h"
-#include "util/sys_err.h"
 #include "util/bstring.h"
+#include "util/sys_err.h"
+#include "util/util.h"
 #include "util/v8_util.h"
 
 namespace kun {
 
 class AsyncRequest {
 public:
-    using HandleFunc = void (*)(AsyncRequest* req);
-    using ResolveFunc = void (*)(v8::Local<v8::Context> context, AsyncRequest* req);
+    using HandleFunc = void (*)(AsyncRequest& req);
+    using ResolveFunc = void (*)(v8::Local<v8::Context> context, AsyncRequest& req);
 
     AsyncRequest(const AsyncRequest&) = delete;
 
@@ -34,7 +34,7 @@ public:
     template<typename T>
     T get(size_t index) const {
         if (index + 1 >= (sizeof(data) >> 3)) {
-            sys::eprintln("ERROR: 'AsyncRequest.get' index exceeded");
+            KUN_LOG_ERR("'AsyncRequest.get' index exceeded");
             return T{};
         }
         if constexpr (std::is_pointer_v<T>) {
@@ -51,15 +51,17 @@ public:
     template<typename T>
     void set(size_t index, T t) {
         if (index + 1 >= (sizeof(data) >> 3)) {
-            sys::eprintln("ERROR: 'AsyncRequest.set' index exceeded");
+            KUN_LOG_ERR("'AsyncRequest.set' index exceeded");
             return;
         }
         if constexpr (std::is_pointer_v<T>) {
-            auto value = reinterpret_cast<uintptr_t>(t);
+            uintptr_t value = 0;
+            if (t != nullptr) {
+                value = reinterpret_cast<uintptr_t>(t);
+            }
             memcpy(data + (index << 3), &value, sizeof(value));
         } else {
-            auto p = reinterpret_cast<char*>(&t);
-            memcpy(data + (index << 3), p, sizeof(t));
+            memcpy(data + (index << 3), &t, sizeof(t));
         }
     }
 
@@ -72,27 +74,27 @@ public:
     }
 
     void handle() {
-        handleFunc(this);
+        handleFunc(*this);
     }
 
     void resolve(v8::Local<v8::Context> context) {
-        resolveFunc(context, this);
+        resolveFunc(context, *this);
     }
 
     template<typename T>
-    static void resolveUndefined(v8::Local<v8::Context> context, AsyncRequest* req) {
+    static void resolveUndefined(v8::Local<v8::Context> context, AsyncRequest& req) {
         static_assert(std::is_integral_v<T> || std::is_same_v<T, void>);
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
-        auto resolver = req->getResolver(isolate);
+        auto resolver = req.getResolver(isolate);
         if constexpr (std::is_same_v<T, void>) {
             resolver->Resolve(context, v8::Undefined(isolate)).Check();
         } else {
-            auto ret = req->get<T>(0);
+            auto ret = req.get<T>(0);
             if (ret != -1) {
                 resolver->Resolve(context, v8::Undefined(isolate)).Check();
             } else {
-                auto ec = req->get<int>(1);
+                auto ec = req.get<int>(1);
                 auto [code, phrase] = SysErr(ec);
                 auto errStr = BString::format("({}) {}", code, phrase);
                 auto errMsg = util::toV8String(isolate, errStr);
@@ -102,17 +104,17 @@ public:
     }
 
     template<typename T>
-    static void resolveNumber(v8::Local<v8::Context> context, AsyncRequest* req) {
+    static void resolveNumber(v8::Local<v8::Context> context, AsyncRequest& req) {
         static_assert(std::is_integral_v<T> || std::is_floating_point_v<T>);
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
-        auto resolver = req->getResolver(isolate);
-        auto ret = req->get<T>(0);
+        auto resolver = req.getResolver(isolate);
+        auto ret = req.get<T>(0);
         if (ret != -1) {
             auto n = v8::Number::New(isolate, static_cast<double>(ret));
             resolver->Resolve(context, n).Check();
         } else {
-            auto ec = req->get<int>(1);
+            auto ec = req.get<int>(1);
             auto [code, phrase] = SysErr(ec);
             auto errStr = BString::format("({}) {}", code, phrase);
             auto errMsg = util::toV8String(isolate, errStr);
@@ -120,17 +122,17 @@ public:
         }
     }
 
-    static void resolveString(v8::Local<v8::Context> context, AsyncRequest* req) {
+    static void resolveString(v8::Local<v8::Context> context, AsyncRequest& req) {
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
-        auto resolver = req->getResolver(isolate);
-        auto ret = req->get<char*>(0);
+        auto resolver = req.getResolver(isolate);
+        auto ret = req.get<char*>(0);
         if (ret != nullptr) {
             auto str = v8::String::NewFromUtf8(isolate, ret).ToLocalChecked();
             delete []ret;
             resolver->Resolve(context, str).Check();
         } else {
-            auto ec = req->get<int>(1);
+            auto ec = req.get<int>(1);
             auto [code, phrase] = SysErr(ec);
             auto errStr = BString::format("({}) {}", code, phrase);
             auto errMsg = util::toV8String(isolate, errStr);
@@ -138,13 +140,13 @@ public:
         }
     }
 
-    static void resolveUint8Array(v8::Local<v8::Context> context, AsyncRequest* req) {
+    static void resolveUint8Array(v8::Local<v8::Context> context, AsyncRequest& req) {
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
-        auto resolver = req->getResolver(isolate);
-        auto ret = req->get<void*>(0);
+        auto resolver = req.getResolver(isolate);
+        auto ret = req.get<void*>(0);
         if (ret != nullptr) {
-            auto nbytes = req->get<size_t>(1);
+            auto nbytes = req.get<size_t>(1);
             auto store = v8::ArrayBuffer::NewBackingStore(
                 ret,
                 nbytes,
@@ -159,7 +161,7 @@ public:
             resolver->Resolve(context, u8Arr).Check();
             isolate->AdjustAmountOfExternalAllocatedMemory(nbytes);
         } else {
-            auto ec = req->get<int>(1);
+            auto ec = req.get<int>(1);
             auto [code, phrase] = SysErr(ec);
             auto errStr = BString::format("({}) {}", code, phrase);
             auto errMsg = util::toV8String(isolate, errStr);
@@ -171,7 +173,7 @@ private:
     HandleFunc handleFunc;
     ResolveFunc resolveFunc;
     v8::Global<v8::Promise::Resolver> resolver;
-    char data[64];
+    char data[48];
 };
 
 }

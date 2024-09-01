@@ -5,8 +5,8 @@
 
 #ifdef KUN_PLATFORM_WIN32
 
-#include <stdio.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <windows.h>
 
 #include "util/bstring.h"

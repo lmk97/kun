@@ -4,38 +4,43 @@
 
 #include <mutex>
 
-#include "loop/async_event.h"
+#include "env/environment.h"
+#include "loop/async_handler.h"
 
+using kun::AsyncHandler;
 using kun::Environment;
-using kun::AsyncEvent;
 
 namespace {
 
-void handleAsyncRequest(AsyncEvent* asyncEvent) {
+void handleAsyncRequest(AsyncHandler* asyncHandler) {
     while (true) {
-        std::unique_lock<std::mutex> lock(asyncEvent->handleMutex);
-        auto& handleCond = asyncEvent->handleCond;
-        auto& asyncRequests = asyncEvent->asyncRequests;
-        while (asyncEvent->handleIndex >= asyncRequests.size()) {
-            if (asyncEvent->closed) {
+        std::unique_lock<std::mutex> lock(asyncHandler->handleMutex);
+        auto& handleCond = asyncHandler->handleCond;
+        auto& handleRequests = asyncHandler->handleRequests;
+        asyncHandler->busyCount++;
+        while (handleRequests.empty()) {
+            if (asyncHandler->closed) {
                 break;
             }
+            asyncHandler->busyCount--;
             handleCond.wait(lock);
+            asyncHandler->busyCount++;
         }
-        if (asyncEvent->closed) {
+        if (asyncHandler->closed) {
             break;
         }
-        auto& asyncRequest = asyncRequests[asyncEvent->handleIndex++];
-        if (asyncEvent->handleIndex < asyncRequests.size()) {
+        auto asyncRequest = std::move(handleRequests.front());
+        handleRequests.pop_front();
+        if (!handleRequests.empty()) {
             handleCond.notify_one();
         }
         lock.unlock();
         asyncRequest.handle();
-        std::lock_guard<std::mutex> lockGuard(asyncEvent->notifyMutex);
-        asyncEvent->handledCount++;
-        if (!asyncEvent->notified) {
-            asyncEvent->notify();
-            asyncEvent->notified = true;
+        std::lock_guard<std::mutex> lockGuard(asyncHandler->resolveMutex);
+        asyncHandler->resolveRequests.emplace_back(std::move(asyncRequest));
+        if (!asyncHandler->notified) {
+            asyncHandler->notify();
+            asyncHandler->notified = true;
         }
     }
 }
@@ -44,10 +49,15 @@ void handleAsyncRequest(AsyncEvent* asyncEvent) {
 
 namespace kun {
 
-void ThreadPool::init(uint32_t size) {
+ThreadPool::ThreadPool(AsyncHandler* asyncHandler) : asyncHandler(asyncHandler) {
+    auto cmdline = asyncHandler->env->getCmdline();
+    auto size = cmdline->get<int>(Cmdline::THREAD_POOL_SIZE).unwrap();
+    if (size < 2) {
+        size = 4;
+    }
     threads.reserve(static_cast<size_t>(size));
-    for (uint32_t i = 0; i < size; i++) {
-        threads.emplace_back(handleAsyncRequest, asyncEvent);
+    for (int i = 0; i < size; i++) {
+        threads.emplace_back(handleAsyncRequest, asyncHandler);
     }
 }
 
@@ -57,6 +67,7 @@ void ThreadPool::joinAll() {
             t.join();
         }
     }
+    threads.clear();
 }
 
 }

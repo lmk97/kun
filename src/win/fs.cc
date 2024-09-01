@@ -2,17 +2,14 @@
 
 #ifdef KUN_PLATFORM_WIN32
 
-#include <windows.h>
 #include <shlwapi.h>
+#include <windows.h>
 
+#include "util/scope_guard.h"
 #include "util/sys_err.h"
 #include "util/util.h"
-#include "util/scope_guard.h"
-#include "sys/io.h"
 #include "win/err.h"
 #include "win/util.h"
-
-using kun::sys::eprintln;
 
 namespace KUN_SYS {
 
@@ -34,8 +31,7 @@ Result<BString> readFile(const BString& path) {
     ON_SCOPE_EXIT {
         if (::CloseHandle(handle) == 0) {
             auto errCode = convertError(::GetLastError());
-            auto [code, phrase] = SysErr(errCode);
-            eprintln("ERROR: 'CloseHandle' ({}) {}", code, phrase);
+            KUN_LOG_ERR(errCode);
         }
     };
     LARGE_INTEGER fileSize;
@@ -90,8 +86,7 @@ Result<bool> removeDir(const BString& path) {
     ON_SCOPE_EXIT {
         if (handle != INVALID_HANDLE_VALUE && ::FindClose(handle) == 0) {
             auto errCode = convertError(::GetLastError());
-            auto [code, phrase] = SysErr(errCode);
-            eprintln("ERROR: FindClose' ({}) {}", code, phrase);
+            KUN_LOG_ERR(errCode);
         }
     };
     WIN32_FIND_DATAW findData;

@@ -5,8 +5,8 @@
 
 #ifdef KUN_PLATFORM_UNIX
 
-#include <stdint.h>
 #include <errno.h>
+#include <stdint.h>
 #include <time.h>
 
 #include "util/result.h"

@@ -5,18 +5,19 @@
 
 #ifdef KUN_PLATFORM_WIN32
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <winsock2.h>
 
 #include <unordered_map>
 
 #include "env/environment.h"
+#include "loop/async_handler.h"
 #include "loop/channel.h"
 #include "loop/timer.h"
-#include "util/min_heap.h"
 #include "sys/io.h"
 #include "sys/time.h"
+#include "util/min_heap.h"
 
 namespace kun {
 
@@ -32,7 +33,7 @@ public:
 
     EventLoop(Environment* env);
 
-    ~EventLoop();
+    ~EventLoop() = default;
 
     void run();
 
@@ -44,6 +45,7 @@ public:
 
 private:
     Environment* env;
+    AsyncHandler asyncHandler;
     MinHeap<Timer, uint64_t> usecTimers;
     std::unordered_map<SOCKET, Channel*> fdChannelMap;
 };

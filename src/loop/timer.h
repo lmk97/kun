@@ -1,18 +1,16 @@
 #ifndef KUN_LOOP_TIMER_H
 #define KUN_LOOP_TIMER_H
 
-#include <stdint.h>
 #include <errno.h>
+#include <stdint.h>
 
 #if defined(KUN_PLATFORM_LINUX)
 #include <sys/timerfd.h>
 #endif
 
-#include "util/constants.h"
-#include "util/sys_err.h"
 #include "loop/channel.h"
-#include "sys/io.h"
-#include "sys/time.h"
+#include "util/constants.h"
+#include "util/util.h"
 
 namespace kun {
 
@@ -27,9 +25,9 @@ public:
     uint64_t milliseconds;
     uint64_t nanoseconds;
     bool interval;
-#ifdef KUN_PLATFORM_WIN32
+    #ifdef KUN_PLATFORM_WIN32
     bool removed{false};
-#endif
+    #endif
 };
 
 inline Timer::Timer(
@@ -42,13 +40,12 @@ inline Timer::Timer(
     nanoseconds(nanoseconds),
     interval(interval)
 {
-#if defined(KUN_PLATFORM_LINUX)
+    #if defined(KUN_PLATFORM_LINUX)
     fd = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (fd == -1) {
-        auto [code, phrase] = SysErr(errno);
-        sys::eprintln("ERROR: 'timerfd_create' ({}) {}", code, phrase);
+        KUN_LOG_ERR(errno);
     }
-#endif
+    #endif
 }
 
 inline Timer::~Timer() {
