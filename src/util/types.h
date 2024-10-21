@@ -1,5 +1,5 @@
-#ifndef KUN_UTIL_TYPE_DEF_H
-#define KUN_UTIL_TYPE_DEF_H
+#ifndef KUN_UTIL_TYPES_H
+#define KUN_UTIL_TYPES_H
 
 #include "util/constants.h"
 

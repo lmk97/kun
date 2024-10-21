@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "sys/process.h"
-#include "win/util.h"
+#include "win/utils.h"
 
 using kun::BString;
 
@@ -142,7 +142,8 @@ BString cleanPath(const BString& path) {
     decltype(size) i = 0;
     for (const auto& name : names) {
         result += name;
-        if ((i > 0 && i + 1 < size) ||
+        if (
+            (i > 0 && i + 1 < size) ||
             (i + 1 < size && name != "\\")
         ) {
             result += "\\";
@@ -157,7 +158,8 @@ BString cleanPath(const BString& path) {
 
 bool isAbsolutePath(const BString& path) {
     auto i = path.find(":");
-    if (i == BString::END ||
+    if (
+        i == BString::END ||
         i + 1 == path.length() ||
         !isPathSeparator(path[i + 1])
     ) {
@@ -176,7 +178,7 @@ bool pathExists(const BString& path) {
         return false;
     }
     auto wstr = result.unwrap();
-    return ::PathFileExistsW(wstr.c_str()) == TRUE;
+    return ::PathFileExistsW(wstr.c_str()) != 0;
 }
 
 }

@@ -6,11 +6,12 @@
 
 #include "util/scope_guard.h"
 #include "util/sys_err.h"
-#include "util/util.h"
+#include "util/utils.h"
 #include "win/err.h"
 
 using kun::SysErr;
 using kun::sys::microsecond;
+using kun::sys::nanosecond;
 using kun::win::convertError;
 
 namespace {
@@ -25,36 +26,70 @@ public:
 
     EventData& operator=(EventData&&) = delete;
 
-    EventData(u_int nfds) : size(nfds) {
-        auto p = malloc(sizeof(u_int) + sizeof(SOCKET) * size);
+    EventData(u_int nfds) {
+        auto p = malloc(sizeof(u_int) + sizeof(SOCKET) * nfds);
         if (p != nullptr) {
+            buf = p;
             fds = new (p) struct fd_set();
+            maxFds = nfds;
         } else {
-            KUN_LOG_ERR("'malloc' out of memory");
+            KUN_LOG_ERR("'EventData::EventData' out of memory");
         }
     }
 
     ~EventData() {
         if (fds != nullptr) {
-            delete[] fds;
+            fds->~fd_set();
         }
+        if (buf != nullptr) {
+            free(buf);
+        }
+    }
+
+    struct fd_set* getFds() const {
+        return fds->fd_count > 0 ? fds : nullptr;
     }
 
     void realloc(u_int nfds) {
-        if (nfds <= size) {
+        if (nfds <= maxFds) {
             return;
         }
-        auto p = ::realloc(fds, sizeof(u_int) + sizeof(SOCKET) * nfds);
+        auto p = malloc(sizeof(u_int) + sizeof(SOCKET) * nfds);
         if (p == nullptr) {
-            KUN_LOG_ERR("'realloc' out of memory");
+            KUN_LOG_ERR("'EventData::realloc' out of memory");
             return;
         }
-        fds = new (p) struct fd_set();
-        size = nfds;
+        auto newFds = new (p) struct fd_set();
+        if (fds != nullptr) {
+            newFds->fd_count = fds->fd_count;
+            for (u_int i = 0; i < fds->fd_count; i++) {
+                newFds->fd_array[i] = fds->fd_array[i];
+            }
+            fds->~fd_set();
+        }
+        if (buf != nullptr) {
+            free(buf);
+        }
+        buf = p;
+        fds = newFds;
+        maxFds = nfds;
     }
 
+    void push(SOCKET fd) {
+        if (fds->fd_count >= maxFds) {
+            this->realloc(maxFds + 512);
+        }
+        fds->fd_array[fds->fd_count++] = fd;
+    }
+
+    void clear() {
+        fds->fd_count = 0;
+    }
+
+private:
+    void* buf{nullptr};
     struct fd_set* fds{nullptr};
-    u_int size;
+    u_int maxFds{0};
 };
 
 }
@@ -67,40 +102,31 @@ EventLoop::EventLoop(Environment* env) :
     usecTimers(1024)
 {
     fdChannelMap.reserve(1024);
+    if (!addChannel(&asyncHandler)) {
+        KUN_LOG_ERR("EventLoop::EventLoop");
+    }
 }
 
 void EventLoop::run() {
-    if (fdChannelMap.empty() && usecTimers.empty()) {
+    if (fdChannelMap.size() <= 1 && usecTimers.empty()) {
         return;
     }
-    EventData readData(1024);
-    EventData writeData(1024);
-    if (!addChannel(&asyncHandler)) {
-        KUN_LOG_ERR("EventLoop.run");
-        return;
-    }
+    EventData readEventData(1024);
+    EventData writeEventData(1024);
     struct timeval tv;
     int nfds = 0;
     while (true) {
-        auto readFds = readData.fds;
-        auto writeFds = writeData.fds;
-        readFds->fd_count = 0;
-        writeFds->fd_count = 0;
+        readEventData.clear();
+        writeEventData.clear();
         for (const auto& [fd, channel] : fdChannelMap) {
             if (channel->type == ChannelType::READ) {
-                if (readFds->fd_count >= readData.size) {
-                    readData.realloc(readData.size + 1024);
-                    readFds = readData.fds;
-                }
-                readFds->fd_array[readFds->fd_count++] = fd;
+                readEventData.push(fd);
             } else if (channel->type == ChannelType::WRITE) {
-                if (writeFds->fd_count >= writeData.size) {
-                    writeData.realloc(writeData.size + 1024);
-                    writeFds = writeData.fds;
-                }
-                writeFds->fd_array[writeFds->fd_count++] = fd;
+                writeEventData.push(fd);
             }
         }
+        auto readFds = readEventData.getFds();
+        auto writeFds = writeEventData.getFds();
         struct timeval* timeout = nullptr;
         if (!usecTimers.empty()) {
             auto currTime = microsecond().unwrap();
@@ -113,13 +139,7 @@ void EventLoop::run() {
             tv.tv_usec = static_cast<long>(us - tv.tv_sec * 1000000);
             timeout = &tv;
         }
-        nfds = ::select(
-            0,
-            readFds->fd_count > 0 ? readFds : nullptr,
-            writeFds->fd_count > 0 ? writeFds : nullptr,
-            nullptr,
-            timeout
-        );
+        nfds = ::select(0, readFds, writeFds, nullptr, timeout);
         if (nfds == SOCKET_ERROR) {
             auto errCode = ::WSAGetLastError();
             if (errCode == WSAEINTR) {
@@ -130,16 +150,24 @@ void EventLoop::run() {
                 break;
             }
         }
-        for (u_int i = 0; i < readFds->fd_count; i++) {
-            auto iter = fdChannelMap.find(readFds->fd_array[i]);
-            if (iter != fdChannelMap.end()) {
-                iter->second->onReadable();
+        if (readFds != nullptr) {
+            auto fdCount = readFds->fd_count;
+            auto fdArray = readFds->fd_array;
+            for (u_int i = 0; i < fdCount; i++) {
+                auto iter = fdChannelMap.find(fdArray[i]);
+                if (iter != fdChannelMap.end()) {
+                    iter->second->onReadable();
+                }
             }
         }
-        for (u_int i = 0; i < writeFds->fd_count; i++) {
-            auto iter = fdChannelMap.find(writeFds->fd_array[i]);
-            if (iter != fdChannelMap.end()) {
-                iter->second->onWritable();
+        if (writeFds != nullptr) {
+            auto fdCount = writeFds->fd_count;
+            auto fdArray = writeFds->fd_array;
+            for (u_int i = 0; i < fdCount; i++) {
+                auto iter = fdChannelMap.find(fdArray[i]);
+                if (iter != fdChannelMap.end()) {
+                    iter->second->onWritable();
+                }
             }
         }
         if (timeout != nullptr) {
@@ -172,20 +200,16 @@ void EventLoop::run() {
 bool EventLoop::addChannel(Channel* channel) {
     if (channel->type == ChannelType::TIMER) {
         auto timer = static_cast<Timer*>(channel);
-        if (auto result = sys::nanosecond()) {
-            auto ts = result.unwrap();
-            auto ms = timer->milliseconds;
-            auto ns = timer->nanoseconds;
-            ms += static_cast<uint64_t>(ts.tv_sec * 1000);
-            ns += static_cast<uint64_t>(ts.tv_nsec);
-            usecTimers.push(timer, ms * 1000 + ns / 1000);
-            return true;
-        } else {
-            return false;
-        }
+        auto ms = timer->milliseconds;
+        auto ns = timer->nanoseconds;
+        auto ts = nanosecond().unwrap();
+        ms += static_cast<uint64_t>(ts.tv_sec * 1000);
+        ns += static_cast<uint64_t>(ts.tv_nsec);
+        usecTimers.push(timer, ms * 1000 + ns / 1000);
+        return true;
     } else {
         if (channel->fd == KUN_INVALID_FD) {
-            KUN_LOG_ERR("'addChannel' invalid fd");
+            KUN_LOG_ERR("'EventLoop::addChannel' invalid fd");
             return false;
         }
         auto pair = fdChannelMap.emplace(channel->fd, channel);

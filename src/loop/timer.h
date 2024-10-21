@@ -10,7 +10,7 @@
 
 #include "loop/channel.h"
 #include "util/constants.h"
-#include "util/util.h"
+#include "util/utils.h"
 
 namespace kun {
 
@@ -30,17 +30,13 @@ public:
     #endif
 };
 
-inline Timer::Timer(
-    uint64_t milliseconds,
-    uint64_t nanoseconds,
-    bool interval
-) :
+inline Timer::Timer(uint64_t milliseconds, uint64_t nanoseconds, bool interval) :
     Channel(KUN_INVALID_FD, ChannelType::TIMER),
     milliseconds(milliseconds),
     nanoseconds(nanoseconds),
     interval(interval)
 {
-    #if defined(KUN_PLATFORM_LINUX)
+    #ifdef KUN_PLATFORM_LINUX
     fd = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     if (fd == -1) {
         KUN_LOG_ERR(errno);

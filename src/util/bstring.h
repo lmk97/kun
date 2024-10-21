@@ -3,7 +3,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,6 +11,7 @@
 #include <utility>
 
 #include "util/constants.h"
+#include "util/traits.h"
 
 namespace kun {
 
@@ -110,14 +110,14 @@ public:
 
     char& operator[](size_t index);
 
-    static constexpr auto END = static_cast<size_t>(1) << (sizeof(size_t) * 8 - 2);
-
     template<typename... TS>
-    static BString format(const BString& format, TS&&... args);
+    static BString format(const BString& fmt, TS&&... args);
 
     static BString view(const char* s, size_t len);
 
     static BString view(const BString& str);
+
+    static constexpr auto END = static_cast<size_t>(1) << (sizeof(size_t) * 8 - 2);
 
 private:
     BStringKind getKind() const;
@@ -147,20 +147,14 @@ inline BString::BString(const char* s, size_t len) {
         memcpy(stack, s, len);
         setStackLength(len);
     } else {
-        auto buf = static_cast<char*>(malloc(len + 1));
-        memcpy(buf, s, len);
-        heap.data = buf;
-        heap.length = len;
-        setHeapCapacity(BStringKind::HEAP, len);
+        setStackLength(0);
+        append(s, len);
     }
 }
 
 template<typename T>
 inline BString::BString(T t) : BString(t, strlen(t)) {
-    static_assert(
-        std::is_same_v<T, const char*> ||
-        std::is_same_v<T, char*>
-    );
+    static_assert(kun::is_c_str<T>);
 }
 
 template<size_t N>
@@ -183,8 +177,6 @@ inline BString::BString(const BString& str) {
         heap.length = str.length();
         setHeapCapacity(BStringKind::RODATA, str.capacity());
     } else {
-        printf("====== BString(const BString& str) ====== %.*s\n",
-            static_cast<int>(str.length()), str.data());
         setStackLength(0);
         append(str);
     }
@@ -194,15 +186,14 @@ inline BString& BString::operator=(const BString& str) {
     if (this == &str) {
         return *this;
     }
-    if (getKind() != BStringKind::HEAP &&
-        str.getKind() == BStringKind::RODATA
-    ) {
+    if (str.getKind() == BStringKind::RODATA) {
+        if (getKind() == BStringKind::HEAP) {
+            free(heap.data);
+        }
         heap.data = const_cast<char*>(str.data());
         heap.length = str.length();
         setHeapCapacity(BStringKind::RODATA, str.capacity());
     } else {
-        printf("====== BString& operator=(const BString& str) ====== %.*s\n",
-            static_cast<int>(str.length()), str.data());
         resize(0);
         append(str);
     }
@@ -215,7 +206,8 @@ inline BString::BString(BString&& str) noexcept {
         memcpy(stack, str.data(), len);
         setStackLength(len);
     } else {
-        heap = std::move(str.heap);
+        heap.data = str.heap.data;
+        heap.length = str.heap.length;
         setHeapCapacity(str.getKind(), str.capacity());
     }
     str.setStackLength(0);
@@ -225,14 +217,16 @@ inline BString& BString::operator=(BString&& str) noexcept {
     if (this == &str) {
         return *this;
     }
-    if (getKind() != BStringKind::HEAP &&
-        str.getKind() != BStringKind::STACK
-    ) {
-        heap = std::move(str.heap);
-        setHeapCapacity(str.getKind(), str.capacity());
-    } else {
+    if (str.getKind() == BStringKind::STACK) {
         resize(0);
         append(str);
+    } else {
+        if (getKind() == BStringKind::HEAP) {
+            free(heap.data);
+        }
+        heap.data = str.heap.data;
+        heap.length = str.heap.length;
+        setHeapCapacity(str.getKind(), str.capacity());
     }
     str.setStackLength(0);
     return *this;
@@ -255,7 +249,8 @@ inline char* BString::data() {
 inline size_t BString::length() const {
     if (getKind() == BStringKind::STACK) {
         auto p = reinterpret_cast<uint8_t*>(&heapCapacity);
-        return getStackCapacity() - *(p + sizeof(heapCapacity) - 1);
+        auto pn = p + sizeof(heapCapacity) - 1;
+        return getStackCapacity() - (*pn & 0x3f);
     } else {
         return heap.length;
     }
@@ -323,10 +318,7 @@ inline BString BString::substring(size_t begin, size_t end) const {
 
 template<typename T>
 inline BString& BString::operator=(T t) {
-    static_assert(
-        std::is_same_v<T, const char*> ||
-        std::is_same_v<T, char*>
-    );
+    static_assert(kun::is_c_str<T>);
     resize(0);
     append(t, strlen(t));
     return *this;
@@ -384,14 +376,14 @@ template<typename... TS>
 inline BString BString::format(const BString& fmt, TS&&... args) {
     BString result;
     result.reserve(1023);
-    const char* p = fmt.data();
-    auto prev = p;
+    auto p = fmt.data();
     auto end = p + fmt.length();
+    auto prev = p;
     ([&](auto&& t) {
-        bool hasSpecifier = false;
+        bool found = false;
         while (p < end) {
             if (*p == '{' && p + 1 < end && *(p + 1) == '}') {
-                hasSpecifier = true;
+                found = true;
                 result.append(prev, p - prev);
                 p += 2;
                 prev = p;
@@ -399,40 +391,32 @@ inline BString BString::format(const BString& fmt, TS&&... args) {
             }
             p++;
         }
-        if (!hasSpecifier) {
+        if (!found) {
             result.append(prev, end - prev);
         }
-        using T = typename std::decay_t<decltype(t)>;
+        using T = typename std::remove_cv_t<std::remove_reference_t<decltype(t)>>;
         static_assert(
-            std::is_same_v<T, bool> ||
-            std::is_same_v<T, char> ||
-            std::is_integral_v<T> ||
-            std::is_floating_point_v<T> ||
-            std::is_same_v<T, BString> ||
-            std::is_same_v<T, const char*> ||
-            std::is_same_v<T, char*>
+            kun::is_bool<T> ||
+            kun::is_char<T> ||
+            kun::is_number<T> ||
+            kun::is_c_str<T> ||
+            std::is_same_v<T, BString>
         );
-        if constexpr (std::is_same_v<T, bool>) {
+        if constexpr (kun::is_bool<T>) {
             result += t ? "true" : "false";
-        } else if constexpr (std::is_same_v<T, char>) {
+        } else if constexpr (kun::is_char<T>) {
             char s[] = {t};
             result.append(s, 1);
-        } else if constexpr (
-            std::is_integral_v<T> ||
-            std::is_floating_point_v<T>
-        ) {
+        } else if constexpr (kun::is_number<T>) {
             char s[64];
             auto [ptr, ec] = std::to_chars(s, s + sizeof(s), t);
             if (ec == std::errc()) {
                 result.append(s, ptr - s);
             }
+        } else if constexpr (kun::is_c_str<T>) {
+            result.append(t, strlen(t));
         } else if constexpr (std::is_same_v<T, BString>) {
             result += t;
-        } else if constexpr (
-            std::is_same_v<T, const char*> ||
-            std::is_same_v<T, char*>
-        ) {
-            result.append(t, strlen(t));
         }
     }(std::forward<TS>(args)), ...);
     result.append(prev, end - prev);
@@ -449,7 +433,8 @@ inline BString BString::view(const BString& str) {
 
 inline BStringKind BString::getKind() const {
     auto p = reinterpret_cast<const uint8_t*>(&heapCapacity);
-    return static_cast<BStringKind>(*(p + sizeof(heapCapacity) - 1) & 0xc0);
+    auto pn = p + sizeof(heapCapacity) - 1;
+    return static_cast<BStringKind>(*pn & 0xc0);
 }
 
 inline constexpr size_t BString::getStackCapacity() {
@@ -457,9 +442,11 @@ inline constexpr size_t BString::getStackCapacity() {
 }
 
 inline void BString::setStackLength(size_t len) {
-    constexpr auto stackCap = getStackCapacity();
+    auto stackCap = getStackCapacity();
+    auto kind = static_cast<uint8_t>(BStringKind::STACK);
     auto p = reinterpret_cast<uint8_t*>(&heapCapacity);
-    *(p + sizeof(heapCapacity) - 1) = static_cast<uint8_t>(stackCap - len);
+    auto pn = p + sizeof(heapCapacity) - 1;
+    *pn = (static_cast<uint8_t>(stackCap - len) & 0x3f) | kind;
 }
 
 inline void BString::setHeapCapacity(BStringKind kind, size_t capacity) {
@@ -477,7 +464,15 @@ inline void BString::setHeapCapacity(BStringKind kind, size_t capacity) {
 
 class BStringHash {
 public:
-    size_t operator()(const BString& str) const;
+    size_t operator()(const BString& str) const {
+        size_t h = 0;
+        auto p = str.data();
+        auto end = p + str.length();
+        while (p < end) {
+            h = h * 131 + *p++;
+        }
+        return h;
+    }
 };
 
 }

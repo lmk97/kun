@@ -143,10 +143,14 @@ const char* EXT_ERR_PHRASES[] = {
     "Success",
     "Unknown error",
     "Runtime error",
+    "Read error",
+    "Write error",
     "Invalid argument",
     "Invalid Unicode character",
     "Socket type not supported",
-    "Socket version not supported"
+    "Socket version not supported",
+    "Not a directory",
+    "Not a regular file"
 };
 
 }
@@ -163,8 +167,8 @@ SysErr::SysErr(int code) {
             this->phrase = EXT_ERR_PHRASES[UNKNOWN_ERROR - SUCCESS];
         }
     } else {
-        int index = code - SUCCESS;
         constexpr int len = sizeof(EXT_ERR_PHRASES) / sizeof(const char*);
+        int index = code - SUCCESS;
         if (index < len) {
             this->phrase = EXT_ERR_PHRASES[index];
         } else {

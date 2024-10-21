@@ -2,11 +2,11 @@
 #define KUN_LOOP_CHANNEL_H
 
 #include "util/constants.h"
-#include "util/type_def.h"
-#include "util/util.h"
+#include "util/types.h"
+#include "util/utils.h"
 
 #ifdef KUN_PLATFORM_WIN32
-#include "win/util.h"
+#include "win/utils.h"
 #endif
 
 namespace kun {

@@ -36,10 +36,14 @@ public:
 
     bool removeChannel(Channel* channel);
 
+    void submitAsyncRequest(AsyncRequest&& req) {
+        asyncHandler.submit(std::move(req));
+    }
+
 private:
     Environment* env;
     AsyncHandler asyncHandler;
-    uint64_t channelCount{0};
+    uint32_t channelCount{0};
     int backendFd;
 };
 

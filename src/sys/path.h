@@ -5,6 +5,7 @@
 
 #include "sys/process.h"
 #include "util/constants.h"
+#include "util/traits.h"
 
 #if defined(KUN_PLATFORM_UNIX)
 #include "unix/path.h"
@@ -44,13 +45,12 @@ inline bool pathExists(const BString& path) {
 
 template<typename... TS>
 inline BString joinPath(const BString& path, TS&&... paths) {
-    size_t capacity = path.length();
+    auto capacity = path.length();
     ([&](auto&& t) {
         using T = typename std::decay_t<decltype(t)>;
         static_assert(
             std::is_same_v<T, BString> ||
-            std::is_same_v<T, const char*> ||
-            std::is_same_v<T, char*>
+            kun::is_c_str<T>
         );
         if constexpr (std::is_same_v<T, BString>) {
             capacity += 1 + t.length();
@@ -77,17 +77,12 @@ inline Result<BString> toAbsolutePath(const BString& path) {
     if (isAbsolutePath(path)) {
         return cleanPath(path);
     }
-    auto result = getCwd();
-    if (!result) {
+    if (auto result = getCwd()) {
+        auto cwd = result.unwrap();
+        return joinPath(cwd, path);
+    } else {
         return result.err();
     }
-    auto cwd = result.unwrap();
-    BString fullPath;
-    fullPath.reserve(cwd.length() + 1 + path.length());
-    fullPath += cwd;
-    fullPath += KUN_PATH_SEPARATOR;
-    fullPath += path;
-    return cleanPath(fullPath);
 }
 
 }

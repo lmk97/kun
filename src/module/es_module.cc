@@ -6,8 +6,8 @@
 #include "sys/path.h"
 #include "util/constants.h"
 #include "util/scope_guard.h"
-#include "util/util.h"
-#include "util/v8_util.h"
+#include "util/utils.h"
+#include "util/v8_utils.h"
 
 KUN_V8_USINGS;
 
@@ -27,6 +27,7 @@ using v8::TryCatch;
 using kun::BString;
 using kun::Environment;
 using kun::EsModule;
+using kun::sys::cleanPath;
 using kun::sys::dirname;
 using kun::sys::eprintln;
 using kun::sys::isAbsolutePath;
@@ -35,6 +36,8 @@ using kun::sys::pathExists;
 using kun::sys::readFile;
 using kun::util::formatException;
 using kun::util::formatSourceLine;
+using kun::util::formatStackTrace;
+using kun::util::fromObject;
 using kun::util::throwError;
 using kun::util::throwSyntaxError;
 using kun::util::toBString;
@@ -44,6 +47,18 @@ namespace {
 
 class DynamicModuleData {
 public:
+    DynamicModuleData(const DynamicModuleData&) = delete;
+
+    DynamicModuleData& operator=(const DynamicModuleData&) = delete;
+
+    DynamicModuleData(DynamicModuleData&&) = default;
+
+    DynamicModuleData& operator=(DynamicModuleData&&) = default;
+
+    DynamicModuleData() = default;
+
+    ~DynamicModuleData() = default;
+
     Isolate* isolate;
     Global<Context> context;
     Global<Data> options;
@@ -54,15 +69,12 @@ public:
     Global<Value> exception;
 };
 
-BString findAttributeType(
-    Local<Context> context,
-    Local<FixedArray> importAttrs,
-    bool hasOffset
-) {
+BString findAttrType(Local<Context> context, Local<FixedArray> importAttrs, bool hasOffset) {
     int entrySize = hasOffset ? 3 : 2;
     for (int i = 0; i < importAttrs->Length(); i += entrySize) {
         auto key = importAttrs->Get(context, i).As<Value>();
-        if (toBString(context, key) != "type") {
+        auto str = toBString(context, key);
+        if (str != "type") {
             continue;
         }
         auto value = importAttrs->Get(context, i + 1).As<Value>();
@@ -84,21 +96,22 @@ Location findLocation(
     for (int i = 0; i < requests->Length(); i++) {
         auto req = requests->Get(context, i).As<ModuleRequest>();
         auto attrs = req->GetImportAttributes();
-        if (attrsLen != attrs->Length() ||
+        if (
+            attrsLen != attrs->Length() ||
             !specifier->StringEquals(req->GetSpecifier())
         ) {
             continue;
         }
-        bool isFound = true;
+        bool found = true;
         for (int j = 0; j < attrsLen; j++) {
             auto value1 = importAttrs->Get(context, j).As<Value>();
             auto value2 = attrs->Get(context, j).As<Value>();
             if (!value1->StrictEquals(value2)) {
-                isFound = false;
+                found = false;
                 break;
             }
         }
-        if (isFound) {
+        if (found) {
             auto offset = req->GetSourceOffset();
             return referrer->SourceOffsetToLocation(offset);
         }
@@ -122,18 +135,11 @@ BString formatMessage(Local<Context> context, Local<Message> message) {
     }
     result += "\n";
     auto path = toBString(context, message->GetScriptResourceName());
-    result += BString::format(
-        "    at \033[0;36m{}\033[0m:\033[0;33m{}\033[0m:\033[0;33m{}\033[0m",
-        path, line, column + 1
-    );
+    result += formatStackTrace(path, line, column + 1);
     return result;
 }
 
-BString formatJsonError(
-    Local<Context> context,
-    Local<Value> exception,
-    const BString& path
-) {
+BString formatJsonError(Local<Context> context, Local<Value> exception, const BString& path) {
     auto isolate = context->GetIsolate();
     HandleScope handleScope(isolate);
     BString result;
@@ -146,9 +152,9 @@ BString formatJsonError(
     result.reserve(511);
     if (exception->IsNativeError()) {
         auto obj = exception.As<Object>();
-        Local<Value> value;
-        if (obj->Get(context, toV8String(isolate, "message")).ToLocal(&value)) {
-            result += toBString(context, value);
+        BString str;
+        if (fromObject(context, obj, "message", str)) {
+            result += str;
         } else {
             result += "Malformed JSON";
         }
@@ -161,23 +167,15 @@ BString formatJsonError(
         result += sourceLine;
     }
     result += "\n";
-    result += BString::format(
-        "    at \033[0;36m{}\033[0m:\033[0;33m{}\033[0m:\033[0;33m{}\033[0m",
-        path, line, column + 1
-    );
+    result += formatStackTrace(path, line, column + 1);
     return result;
 }
 
 inline bool isLocalPath(const BString& path) {
-    return isAbsolutePath(path) ||
-        path.startsWith("./") ||
-        path.startsWith("../");
+    return isAbsolutePath(path) || path.startsWith("./") || path.startsWith("../");
 }
 
-MaybeLocal<Value> jsonModuleEvaluationSteps(
-    Local<Context> context,
-    Local<Module> module
-) {
+MaybeLocal<Value> jsonModuleEvaluationSteps(Local<Context> context, Local<Module> module) {
     auto isolate = context->GetIsolate();
     EscapableHandleScope handleScope(isolate);
     auto resolver = Promise::Resolver::New(context).ToLocalChecked();
@@ -188,13 +186,11 @@ MaybeLocal<Value> jsonModuleEvaluationSteps(
     if (auto result = esModule->findModulePath(module)) {
         modulePath = result.unwrap();
     } else {
-        auto v8str = toV8String(isolate, "JSON is not found");
-        resolver->Reject(context, Exception::Error(v8str)).Check();
+        auto v8Str = toV8String(isolate, "JSON not found");
+        resolver->Reject(context, Exception::Error(v8Str)).Check();
         return handleScope.Escape(promise);
     }
-    auto content = readFile(modulePath).expect(
-        BString::format("JSON not found '{}'", modulePath)
-    );
+    auto content = readFile(modulePath).expect("JSON not found '{}'", modulePath);
     TryCatch tryCatch(isolate);
     Local<Value> value;
     if (JSON::Parse(context, toV8String(isolate, content)).ToLocal(&value)) {
@@ -204,12 +200,12 @@ MaybeLocal<Value> jsonModuleEvaluationSteps(
     if (tryCatch.HasCaught()) {
         auto exception = tryCatch.Exception();
         auto errStr = formatJsonError(context, exception, modulePath);
-        auto v8str = toV8String(isolate, errStr);
-        resolver->Reject(context, Exception::SyntaxError(v8str)).Check();
+        auto v8Str = toV8String(isolate, errStr);
+        resolver->Reject(context, Exception::SyntaxError(v8Str)).Check();
     } else {
         auto errStr = BString::format("Malformed JSON '{}'", modulePath);
-        auto v8str = toV8String(isolate, errStr);
-        resolver->Reject(context, Exception::SyntaxError(v8str)).Check();
+        auto v8Str = toV8String(isolate, errStr);
+        resolver->Reject(context, Exception::SyntaxError(v8Str)).Check();
     }
     return handleScope.Escape(promise);
 }
@@ -228,7 +224,7 @@ MaybeLocal<Module> resolveModuleCallback(
     if (auto result = esModule->findModulePath(referrer)) {
         referrerPath = result.unwrap();
     } else {
-        throwError(isolate, "Referrer module is not found");
+        throwError(isolate, "Referrer module not found");
         return MaybeLocal<Module>();
     }
     BString modulePath;
@@ -244,9 +240,8 @@ MaybeLocal<Module> resolveModuleCallback(
             auto line = location.GetLineNumber() + 1;
             auto column = location.GetColumnNumber() + 1;
             auto errStr = BString::format(
-                "Dependency not found '{}'\n"
-                "    at \033[0;36m{}\033[0m:\033[0;33m{}\033[0m:\033[0;33m{}\033[0m",
-                specifierStr, referrerPath, line, column
+                "Dependency not found '{}'\n{}",
+                specifierStr, formatStackTrace(referrerPath, line, column)
             );
             throwError(isolate, errStr);
             return MaybeLocal<Module>();
@@ -260,14 +255,13 @@ MaybeLocal<Module> resolveModuleCallback(
         auto line = location.GetLineNumber() + 1;
         auto column = location.GetColumnNumber() + 1;
         auto errStr = BString::format(
-            "Module not found '{}'\n"
-            "    at \033[0;36m{}\033[0m:\033[0;33m{}\033[0m:\033[0;33m{}\033[0m",
-            modulePath, referrerPath, line, column
+            "Module not found '{}'\n{}",
+            modulePath, formatStackTrace(referrerPath, line, column)
         );
         throwError(isolate, errStr);
         return MaybeLocal<Module>();
     }
-    auto attrType = findAttributeType(context, importAttrs, true);
+    auto attrType = findAttrType(context, importAttrs, true);
     if (attrType == "json") {
         auto moduleName = toV8String(isolate, modulePath);
         const MemorySpan<const Local<String>> exportNames(
@@ -295,10 +289,7 @@ MaybeLocal<Module> resolveModuleCallback(
         true,
         Local<Data>()
     );
-    ScriptCompiler::Source source(
-        toV8String(isolate, content),
-        scriptOrigin
-    );
+    ScriptCompiler::Source source(toV8String(isolate, content), scriptOrigin);
     TryCatch tryCatch(isolate);
     Local<Module> module;
     if (ScriptCompiler::CompileModule(isolate, &source).ToLocal(&module)) {
@@ -310,9 +301,8 @@ MaybeLocal<Module> resolveModuleCallback(
         auto line = location.GetLineNumber() + 1;
         auto column = location.GetColumnNumber() + 1;
         auto errStr = BString::format(
-            "Failed to import '{}'"
-            "    at \033[0;36m{}\033[0m:\033[0;33m{}\033[0m:\033[0;33m{}\033[0m",
-            specifierStr, referrerPath, line, column
+            "Failed to import '{}'\n{}",
+            specifierStr, formatStackTrace(referrerPath, line, column)
         );
         throwSyntaxError(isolate, errStr);
     }
@@ -355,19 +345,15 @@ void doImportModuleDynamically(void* ptr) {
         resolver->Reject(context, exception).Check();
         return;
     }
-    auto attrType = findAttributeType(context, importAttrs, false);
+    auto attrType = findAttrType(context, importAttrs, false);
     if (attrType == "json") {
         TryCatch tryCatch(isolate);
         Local<Value> value;
         if (!JSON::Parse(context, toV8String(isolate, content)).ToLocal(&value)) {
             if (tryCatch.HasCaught()) {
-                auto errStr = formatJsonError(
-                    context,
-                    tryCatch.Exception(),
-                    modulePath
-                );
-                auto v8str = toV8String(isolate, errStr);
-                resolver->Reject(context, Exception::SyntaxError(v8str)).Check();
+                auto errStr = formatJsonError(context, tryCatch.Exception(), modulePath);
+                auto v8Str = toV8String(isolate, errStr);
+                resolver->Reject(context, Exception::SyntaxError(v8Str)).Check();
             } else {
                 resolver->Reject(context, exception).Check();
             }
@@ -384,9 +370,7 @@ void doImportModuleDynamically(void* ptr) {
             context,
             Symbol::GetToStringTag(isolate),
             toV8String(isolate, "Module"),
-            static_cast<PropertyAttribute>(
-                v8::ReadOnly | v8::DontEnum | v8::DontDelete
-            )
+            static_cast<PropertyAttribute>(v8::ReadOnly | v8::DontEnum | v8::DontDelete)
         ).Check();
         resolver->Resolve(context, obj).Check();
         return;
@@ -404,10 +388,7 @@ void doImportModuleDynamically(void* ptr) {
         true,
         Local<Data>()
     );
-    ScriptCompiler::Source source(
-        toV8String(isolate, content),
-        scriptOrigin
-    );
+    ScriptCompiler::Source source(toV8String(isolate, content), scriptOrigin);
     TryCatch tryCatch(isolate);
     Local<Module> module;
     if (!ScriptCompiler::CompileModule(isolate, &source).ToLocal(&module)) {
@@ -442,11 +423,8 @@ void importMetaObjectResolve(const FunctionCallbackInfo<Value>& info) {
     auto resolver = Promise::Resolver::New(context).ToLocalChecked();
     auto promise = resolver->GetPromise();
     if (info.Length() < 1) {
-        auto v8str = toV8String(
-            isolate,
-            "1 argument required, but only 0 present"
-        );
-        resolver->Reject(context, Exception::TypeError(v8str)).Check();
+        auto v8Str = toV8String(isolate, "1 argument required, but only 0 present");
+        resolver->Reject(context, Exception::TypeError(v8Str)).Check();
         info.GetReturnValue().Set(promise);
         return;
     }
@@ -456,8 +434,8 @@ void importMetaObjectResolve(const FunctionCallbackInfo<Value>& info) {
             "'{}' not absolute path, or not prefixed with ./ or ../",
             specifier
         );
-        auto v8str = toV8String(isolate, errStr);
-        resolver->Reject(context, Exception::TypeError(v8str)).Check();
+        auto v8Str = toV8String(isolate, errStr);
+        resolver->Reject(context, Exception::TypeError(v8Str)).Check();
         info.GetReturnValue().Set(promise);
         return;
     }
@@ -465,7 +443,7 @@ void importMetaObjectResolve(const FunctionCallbackInfo<Value>& info) {
         BString filePath;
         filePath.reserve(7 + specifier.length());
         filePath += "file://";
-        filePath += specifier;
+        filePath += cleanPath(specifier);
         resolver->Resolve(context, toV8String(isolate, filePath)).Check();
     } else {
         auto modulePath = toBString(context, info.Data());
@@ -489,20 +467,15 @@ EsModule::EsModule(Environment* env) : env(env) {
 }
 
 bool EsModule::execute(const BString& path) {
-    if (path.empty()) {
-        return false;
-    }
     auto isolate = env->getIsolate();
     HandleScope handleScope(isolate);
     auto context = env->getContext();
     auto moduleDir = dirname(path);
-    auto depsPath = joinPath(moduleDir, "deps.json");
-    if (!loadDeps(depsPath)) {
+    auto depsJsonPath = joinPath(moduleDir, "deps.json");
+    if (!loadDeps(depsJsonPath)) {
         return false;
     }
-    auto content = readFile(path).expect(
-        BString::format("Module not found '{}'", path)
-    );
+    auto content = readFile(path).expect("Module not found '{}'", path);
     ScriptOrigin scriptOrigin(
         isolate,
         toV8String(isolate, path),
@@ -516,10 +489,7 @@ bool EsModule::execute(const BString& path) {
         true,
         Local<Data>()
     );
-    ScriptCompiler::Source source(
-        toV8String(isolate, content),
-        scriptOrigin
-    );
+    ScriptCompiler::Source source(toV8String(isolate, content), scriptOrigin);
     TryCatch tryCatch(isolate);
     Local<Module> module;
     if (!ScriptCompiler::CompileModule(isolate, &source).ToLocal(&module)) {
@@ -527,15 +497,14 @@ bool EsModule::execute(const BString& path) {
             auto errStr = formatException(context, tryCatch.Exception());
             eprintln(errStr);
         } else {
-            eprintln("Failed to compile module '{}'", path);
+            eprintln("ERROR: Failed to compile module '{}'", path);
         }
         return false;
     }
     modulePathMap.emplace(module->GetIdentityHash(), path);
     if (module->InstantiateModule(context, resolveModuleCallback).FromMaybe(false)) {
         Local<Promise> promise;
-        Local<Value> value;
-        if (module->Evaluate(context).ToLocal(&value)) {
+        if (Local<Value> value; module->Evaluate(context).ToLocal(&value)) {
             promise = value.As<Promise>();
         } else {
             KUN_LOG_ERR("EsModule::execute");
@@ -555,7 +524,7 @@ bool EsModule::execute(const BString& path) {
         auto errStr = formatException(context, tryCatch.Exception());
         eprintln(errStr);
     } else {
-        eprintln("Failed to evaluate module '{}'", path);
+        eprintln("ERROR: Failed to evaluate module '{}'", path);
     }
     return false;
 }
@@ -572,7 +541,8 @@ bool EsModule::loadDeps(const BString& path) {
     auto context = env->getContext();
     TryCatch tryCatch(isolate);
     Local<Value> value;
-    if (!JSON::Parse(context, toV8String(isolate, content)).ToLocal(&value) ||
+    if (
+        !JSON::Parse(context, toV8String(isolate, content)).ToLocal(&value) ||
         value->IsNull() ||
         !value->IsObject()
     ) {
@@ -587,12 +557,7 @@ bool EsModule::loadDeps(const BString& path) {
     }
     auto rootObj = value.As<Object>();
     Local<Object> depsObj;
-    if (rootObj->Get(context, toV8String(isolate, "deps")).ToLocal(&value) &&
-        !value->IsNull() &&
-        value->IsObject()
-    ) {
-        depsObj = value.As<Object>();
-    } else {
+    if (!fromObject(context, rootObj, "deps", depsObj)) {
         return true;
     }
     Local<Array> names;
@@ -604,37 +569,27 @@ bool EsModule::loadDeps(const BString& path) {
     auto depsDir = env->getDepsDir();
     auto len = names->Length();
     for (decltype(len) i = 0; i < len; i++) {
-        Local<Object> obj;
-        auto key = names->Get(context, i).ToLocalChecked();
-        if (depsObj->Get(context, key).ToLocal(&value) &&
-            !value->IsNull() &&
-            value->IsObject()
-        ) {
-            obj = value.As<Object>();
-        } else {
+        BString name;
+        if (!fromObject(context, names, i, name)) {
             continue;
         }
-        BString name = toBString(context, key);
+        Local<Object> obj;
+        if (!fromObject(context, depsObj, name, obj)) {
+            eprintln("WARN: deps['{}'] is not an object", name);
+            continue;
+        }
         BString version;
-        if (obj->Get(context, toV8String(isolate, "version")).ToLocal(&value) &&
-            value->IsString()
-        ) {
-            version = toBString(context, value);
-        } else {
+        if (!fromObject(context, obj, "version", version)) {
             eprintln("WARN: deps['{}'].version is not found", name);
             continue;
         }
         BString url;
-        if (obj->Get(context, toV8String(isolate, "url")).ToLocal(&value) &&
-            value->IsString()
-        ) {
-            url = toBString(context, value);
-        } else {
+        if (!fromObject(context, obj, "url", url)) {
             eprintln("WARN: deps['{}'].url is not found", name);
             continue;
         }
         auto begin = url.find("//");
-        if (begin == BString::END) {
+        if (begin == BString::END || begin + 2 == url.length()) {
             eprintln("WARN: deps['{}'].url is malformed", name);
             continue;
         }
@@ -665,27 +620,27 @@ Result<BString> EsModule::findModulePath(Local<Module> module) const {
     if (iter != modulePathMap.end()) {
         return BString::view(iter->second);
     }
-    return SysErr::err("Module is not found");
+    return SysErr::err("Module not found");
 }
 
 Result<BString> EsModule::findDepsPath(const BString& specifier) const {
     auto index = specifier.find("/");
     if (index == BString::END) {
-        return SysErr::err("specifier is malformed");
+        return SysErr::err("Malformed specifier");
     }
     index = specifier.find("/", index + 1);
     if (index == BString::END || index + 1 == specifier.length()) {
-        return SysErr::err("specifier is malformed");
+        return SysErr::err("Malformed specifier");
     }
     auto name = specifier.substring(0, index);
     auto suffix = specifier.substring(index + 1);
     auto iter = depsPathMap.find(name);
     if (iter == depsPathMap.end()) {
-        return SysErr::err("specifier is not found");
+        return SysErr::err("Dependency not found");
     }
     auto path = joinPath(iter->second, suffix);
     if (!pathExists(path)) {
-        return SysErr::err("Dependency is not found");
+        return SysErr::err("Dependency not exist");
     }
     return path;
 }
@@ -700,8 +655,9 @@ MaybeLocal<Promise> importModuleDynamicallyCallback(
     Local<FixedArray> importAttrs
 ) {
     auto isolate = context->GetIsolate();
-    HandleScope handleScope(isolate);
+    EscapableHandleScope handleScope(isolate);
     auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    auto promise = resolver->GetPromise();
     auto data = new DynamicModuleData();
     data->isolate = isolate;
     data->context.Reset(isolate, context);
@@ -715,14 +671,10 @@ MaybeLocal<Promise> importModuleDynamicallyCallback(
     auto exception = Exception::Error(toV8String(isolate, errStr));
     data->exception.Reset(isolate, exception);
     isolate->EnqueueMicrotask(doImportModuleDynamically, data);
-    return resolver->GetPromise();
+    return handleScope.Escape(promise);
 }
 
-void importMetaObjectCallback(
-    Local<Context> context,
-    Local<Module> module,
-    Local<Object> meta
-) {
+void importMetaObjectCallback(Local<Context> context, Local<Module> module, Local<Object> meta) {
     auto isolate = context->GetIsolate();
     HandleScope handleScope(isolate);
     auto env = Environment::from(context);
@@ -731,7 +683,7 @@ void importMetaObjectCallback(
     if (auto result = esModule->findModulePath(module)) {
         modulePath = result.unwrap();
     } else {
-        throwError(isolate, "Module is not found");
+        throwError(isolate, "Module not found");
         return;
     }
     BString filePath;

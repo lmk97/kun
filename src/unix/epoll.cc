@@ -3,18 +3,21 @@
 #ifdef KUN_PLATFORM_LINUX
 
 #include <errno.h>
-#include <sys/signal.h>
-#include <sys/timerfd.h>
 #include <unistd.h>
+#include <sys/timerfd.h>
 
 #include "loop/timer.h"
-#include "util/util.h"
+#include "util/utils.h"
 
 namespace kun {
 
 EventLoop::EventLoop(Environment* env) : env(env), asyncHandler(env) {
     backendFd = ::epoll_create1(EPOLL_CLOEXEC);
-    if (backendFd == -1) {
+    if (backendFd != -1) {
+        if (!addChannel(&asyncHandler)) {
+            KUN_LOG_ERR("EventLoop::EventLoop");
+        }
+    } else {
         KUN_LOG_ERR(errno);
     }
 }
@@ -26,19 +29,7 @@ EventLoop::~EventLoop() {
 }
 
 void EventLoop::run() {
-    if (backendFd == -1 || channelCount == 0) {
-        return;
-    }
-    if (!addChannel(&asyncHandler)) {
-        KUN_LOG_ERR("EventLoop.run");
-        return;
-    }
-    struct sigaction sa;
-    sa.sa_handler = SIG_IGN;
-    ::sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    if (::sigaction(SIGPIPE, &sa, nullptr) == -1) {
-        KUN_LOG_ERR(errno);
+    if (backendFd == -1 || channelCount <= 1) {
         return;
     }
     constexpr int maxEvents = 1024;
@@ -59,7 +50,9 @@ void EventLoop::run() {
             if (channel->type == ChannelType::TIMER) {
                 auto timer = static_cast<Timer*>(channel);
                 uint64_t value;
-                ::read(timer->fd, &value, sizeof(value));
+                if (::read(timer->fd, &value, sizeof(value)) == -1) {
+                    KUN_LOG_ERR(errno);
+                }
                 if (!timer->interval) {
                     removeChannel(timer);
                 }
@@ -82,7 +75,7 @@ void EventLoop::run() {
 
 bool EventLoop::addChannel(Channel* channel) {
     if (channel->fd == KUN_INVALID_FD) {
-        KUN_LOG_ERR("'addChannel' invalid fd");
+        KUN_LOG_ERR("'EventLoop::addChannel' invalid fd");
         return false;
     }
     struct epoll_event ev;
@@ -94,8 +87,8 @@ bool EventLoop::addChannel(Channel* channel) {
         ev.events = EPOLLET | EPOLLIN;
         auto timer = static_cast<Timer*>(channel);
         auto interval = timer->interval;
-        auto s = timer->milliseconds / 1000;
-        auto ns = timer->nanoseconds;
+        auto s = static_cast<time_t>(timer->milliseconds / 1000);
+        auto ns = static_cast<long>(timer->nanoseconds);
         struct itimerspec newValue;
         newValue.it_interval.tv_sec = interval ? s : 0;
         newValue.it_interval.tv_nsec = interval ? ns : 0;
@@ -106,7 +99,7 @@ bool EventLoop::addChannel(Channel* channel) {
             return false;
         }
     } else {
-        KUN_LOG_ERR("'addChannel' invalid channel type");
+        KUN_LOG_ERR("'EventLoop::addChannel' invalid channel type");
         return false;
     }
     ev.data.ptr = channel;
@@ -120,7 +113,7 @@ bool EventLoop::addChannel(Channel* channel) {
 
 bool EventLoop::modifyChannel(Channel* channel) {
     if (channel->fd == KUN_INVALID_FD) {
-        KUN_LOG_ERR("'modifyChannel' invalid fd");
+        KUN_LOG_ERR("'EventLoop::modifyChannel' invalid fd");
         return false;
     }
     struct epoll_event ev;
@@ -129,7 +122,7 @@ bool EventLoop::modifyChannel(Channel* channel) {
     } else if (channel->type == ChannelType::WRITE) {
         ev.events = EPOLLET | EPOLLOUT;
     } else {
-        KUN_LOG_ERR("'modifyChannel' invalid channel type");
+        KUN_LOG_ERR("'EventLoop::modifyChannel' invalid channel type");
         return false;
     }
     ev.data.ptr = channel;
@@ -142,7 +135,7 @@ bool EventLoop::modifyChannel(Channel* channel) {
 
 bool EventLoop::removeChannel(Channel* channel) {
     if (channel->fd == KUN_INVALID_FD) {
-        KUN_LOG_ERR("'removeChannel' invalid fd");
+        KUN_LOG_ERR("'EventLoop::removeChannel' invalid fd");
         return false;
     }
     struct epoll_event ev;

@@ -1,24 +1,29 @@
 #include "env/environment.h"
 
 #include "libplatform/libplatform.h"
+#include "env/cmdline.h"
 #include "loop/event_loop.h"
 #include "module/es_module.h"
+#include "sys/fs.h"
 #include "sys/io.h"
 #include "sys/path.h"
 #include "sys/process.h"
 #include "util/scope_guard.h"
-#include "util/v8_util.h"
+#include "util/v8_utils.h"
+#include "web/console.h"
 
 KUN_V8_USINGS;
 
 using v8::PromiseRejectMessage;
 using v8::StackTrace;
+using kun::BString;
 using kun::Environment;
 using kun::EsModule;
 using kun::EventLoop;
 using kun::sys::eprintln;
 using kun::sys::getAppDir;
 using kun::sys::joinPath;
+using kun::sys::makeDirs;
 using kun::util::formatException;
 using kun::util::toBString;
 using kun::util::toV8String;
@@ -34,11 +39,12 @@ void promiseRejectCallback(PromiseRejectMessage rejectMessage) {
     auto event = rejectMessage.GetEvent();
     if (event == v8::kPromiseRejectWithNoHandler) {
         auto value = rejectMessage.GetValue();
-        env->pushRejection(promise, value);
+        env->pushUnhandledRejection(promise, value);
     } else if (event == v8::kPromiseHandlerAddedAfterReject) {
-        env->popRejection();
+        env->popUnhandledRejection();
     } else {
-        auto errStr = toBString(context, rejectMessage.GetValue());
+        auto value = rejectMessage.GetValue();
+        auto errStr = toBString(context, value);
         eprintln("\033[0;31mUncaught (in promise)\033[0m: {}", errStr);
     }
 }
@@ -48,10 +54,12 @@ void promiseRejectCallback(PromiseRejectMessage rejectMessage) {
 namespace kun {
 
 Environment::Environment(Cmdline* cmdline): cmdline(cmdline) {
-    unhandledRejections.reserve(1024);
+    unhandledRejections.reserve(256);
     auto appDir = getAppDir().unwrap();
     kunDir = joinPath(appDir, ".kun");
     depsDir = joinPath(kunDir, "deps");
+    makeDirs(kunDir).expect("makeDirs '{}'", kunDir);
+    makeDirs(depsDir).expect("makeDirs '{}'", depsDir);
 }
 
 void Environment::run(ExposedScope exposedScope) {
@@ -72,19 +80,11 @@ void Environment::run(ExposedScope exposedScope) {
     {
         Isolate::Scope isolateScope(isolate);
         HandleScope handleScope(isolate);
-        isolate->SetCaptureStackTraceForUncaughtExceptions(
-            true,
-            64,
-            StackTrace::kDetailed
-        );
-        isolate->SetHostImportModuleDynamicallyCallback(
-            esm::importModuleDynamicallyCallback
-        );
-        isolate->SetHostInitializeImportMetaObjectCallback(
-            esm::importMetaObjectCallback
-        );
         isolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
+        isolate->SetCaptureStackTraceForUncaughtExceptions(true, 16, StackTrace::kDetailed);
         isolate->SetPromiseRejectCallback(promiseRejectCallback);
+        isolate->SetHostImportModuleDynamicallyCallback(esm::importModuleDynamicallyCallback);
+        isolate->SetHostInitializeImportMetaObjectCallback(esm::importMetaObjectCallback);
         {
             auto objTmpl = ObjectTemplate::New(isolate);
             auto context = Context::New(isolate, nullptr, objTmpl);
@@ -99,13 +99,16 @@ void Environment::run(ExposedScope exposedScope) {
             ).Check();
             this->isolate = isolate;
             this->context.Reset(isolate, context);
-            EventLoop eventLoop(this);
+            web::exposeConsole(context, exposedScope);
             EsModule esModule(this);
-            this->eventLoop = &eventLoop;
+            EventLoop eventLoop(this);
             this->esModule = &esModule;
+            this->eventLoop = &eventLoop;
             auto scriptPath = cmdline->getScriptPath();
-            if (esModule.execute(scriptPath)) {
-                eventLoop.run();
+            if (!scriptPath.empty()) {
+                if (esModule.execute(scriptPath)) {
+                    eventLoop.run();
+                }
             }
             this->isolate = nullptr;
             this->context.Reset();

@@ -83,7 +83,8 @@ BString cleanPath(const BString& path) {
     decltype(size) i = 0;
     for (const auto& name : names) {
         result += name;
-        if ((i > 0 && i + 1 < size) ||
+        if (
+            (i > 0 && i + 1 < size) ||
             (i + 1 < size && name != "/")
         ) {
             result += "/";
@@ -91,10 +92,6 @@ BString cleanPath(const BString& path) {
         i++;
     }
     return result;
-}
-
-bool pathExists(const BString& path) {
-    return ::access(path.c_str(), F_OK) == 0;
 }
 
 }

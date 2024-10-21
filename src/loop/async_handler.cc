@@ -6,9 +6,9 @@
 #include "v8.h"
 #include "loop/event_loop.h"
 #include "util/constants.h"
-#include "util/util.h"
+#include "util/utils.h"
 
-#if defined(KUN_PLATFORM_UNIX)
+#ifdef KUN_PLATFORM_UNIX
 #include <unistd.h>
 #endif
 
@@ -44,7 +44,7 @@ AsyncHandler::AsyncHandler(Environment* env) :
 
 AsyncHandler::~AsyncHandler() {
     if (!tryClose()) {
-        KUN_LOG_ERR("~AsyncHandler");
+        KUN_LOG_ERR("AsyncHandler::~AsyncHandler");
     }
 }
 
@@ -57,12 +57,12 @@ void AsyncHandler::onReadable() {
     #elif defined(KUN_PLATFORM_WIN32)
     auto eventLoop = env->getEventLoop();
     if (!eventLoop->removeChannel(this)) {
-        KUN_LOG_ERR("AsyncHandler.onReadable");
+        KUN_LOG_ERR("AsyncHandler::onReadable");
     }
     fd = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd != INVALID_SOCKET) {
         if (!eventLoop->addChannel(this)) {
-            KUN_LOG_ERR("AsyncHandler.onReadable");
+            KUN_LOG_ERR("AsyncHandler::onReadable");
         }
     } else {
         auto errCode = win::convertError(::WSAGetLastError());
@@ -72,12 +72,7 @@ void AsyncHandler::onReadable() {
     auto isolate = env->getIsolate();
     HandleScope handleScope(isolate);
     auto context = env->getContext();
-    std::list<AsyncRequest> requests;
-    {
-        std::lock_guard<std::mutex> lockGuard(resolveMutex);
-        requests.swap(resolveRequests);
-        notified = false;
-    }
+    auto requests = threadPool.getResolvedRequests();
     for (auto& req : requests) {
         req.resolve(context);
     }
@@ -85,8 +80,8 @@ void AsyncHandler::onReadable() {
 
 void AsyncHandler::notify() {
     #if defined(KUN_PLATFORM_LINUX)
-    uint64_t value;
-    if (::read(fd, &value, sizeof(value)) == -1) {
+    uint64_t value = 1;
+    if (::write(fd, &value, sizeof(value)) == -1) {
         KUN_LOG_ERR(errno);
     }
     #elif defined(KUN_PLATFORM_WIN32)
@@ -95,42 +90,6 @@ void AsyncHandler::notify() {
         KUN_LOG_ERR(errCode);
     }
     #endif
-}
-
-void AsyncHandler::submit(AsyncRequest&& req) {
-    std::lock_guard<std::mutex> lockGuard(handleMutex);
-    handleRequests.emplace_back(std::move(req));
-    handleCond.notify_one();
-}
-
-bool AsyncHandler::tryClose() {
-    bool isIdle = false;
-    {
-        std::lock_guard<std::mutex> lockGuard(handleMutex);
-        if (closed) {
-            return true;
-        }
-        isIdle = handleRequests.empty() && busyCount == 0;
-    }
-    bool hasReq = false;
-    if (isIdle) {
-        std::lock_guard<std::mutex> lockGuard(resolveMutex);
-        hasReq = !resolveRequests.empty();
-    }
-    if (!hasReq) {
-        std::lock_guard<std::mutex> lockGuard(handleMutex);
-        if (handleRequests.empty() && busyCount == 0) {
-            closed = true;
-            handleCond.notify_all();
-        } else {
-            isIdle = false;
-        }
-    }
-    if (isIdle && !hasReq) {
-        threadPool.joinAll();
-        return true;
-    }
-    return false;
 }
 
 }

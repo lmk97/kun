@@ -22,7 +22,9 @@ public:
 
     Result& operator=(Result&&) = delete;
 
-    Result(T&& t) : value(std::move(t)), errCode(0) {}
+    Result(T&& t) : value(std::move(t)), errCode(0) {
+        static_assert(!std::is_same_v<T, SysErr>);
+    }
 
     Result(SysErr sysErr) : errCode(sysErr.code) {}
 
@@ -41,23 +43,21 @@ public:
         return SysErr(errCode);
     }
 
-    T&& expect(const BString& str) {
+    template<typename... TS>
+    T&& expect(const BString& fmt, TS&&... args) {
         if (!SysErr::isSuccess(errCode)) {
+            auto str = BString::format(fmt, std::forward<TS>(args)...);
             if (!str.empty()) {
-                fprintf(
-                    stderr,
-                    "\033[0;31mERROR\033[0m: %s\n",
-                    str.c_str()
-                );
+                fprintf(stderr, "\x1b[0;31mERROR\x1b[0m: %s\n", str.c_str());
             } else {
-                auto [code, phrase] = err();
+                auto [code, phrase] = SysErr(errCode);
                 fprintf(
                     stderr,
-                    "\033[0;31mERROR\033[0m: (%d) %s\n",
+                    "\x1b[0;31mERROR\x1b[0m: (\x1b[0;33m%d\x1b[0m) %s\n",
                     code, phrase
                 );
             }
-            exit(EXIT_FAILURE);
+            ::exit(EXIT_FAILURE);
         }
         return std::move(value);
     }

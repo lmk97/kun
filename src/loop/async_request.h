@@ -3,13 +3,16 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "v8.h"
 #include "util/bstring.h"
+#include "util/scope_guard.h"
 #include "util/sys_err.h"
-#include "util/util.h"
-#include "util/v8_util.h"
+#include "util/traits.h"
+#include "util/utils.h"
+#include "util/v8_utils.h"
 
 namespace kun {
 
@@ -22,20 +25,40 @@ public:
 
     AsyncRequest& operator=(const AsyncRequest&) = delete;
 
-    AsyncRequest(AsyncRequest&&) = default;
+    AsyncRequest(AsyncRequest&& req) noexcept :
+        handleFunc(req.handleFunc),
+        resolveFunc(req.resolveFunc),
+        resolver(std::move(req.resolver))
+    {
+        memcpy(data, req.data, sizeof(data));
+        req.handleFunc = nullptr;
+        req.resolveFunc = nullptr;
+    }
 
-    AsyncRequest& operator=(AsyncRequest&&) = default;
+    AsyncRequest& operator=(AsyncRequest&& req) noexcept {
+        handleFunc = req.handleFunc;
+        resolveFunc = req.resolveFunc;
+        resolver = std::move(req.resolver);
+        memcpy(data, req.data, sizeof(data));
+        req.handleFunc = nullptr;
+        req.resolveFunc = nullptr;
+        return *this;
+    }
 
     AsyncRequest(HandleFunc handleFunc, ResolveFunc resolveFunc) :
-        handleFunc(handleFunc), resolveFunc(resolveFunc) {}
+        handleFunc(handleFunc),
+        resolveFunc(resolveFunc)
+    {
+
+    }
 
     ~AsyncRequest() = default;
 
     template<typename T>
     T get(size_t index) const {
         if (index + 1 >= (sizeof(data) >> 3)) {
-            KUN_LOG_ERR("'AsyncRequest.get' index exceeded");
-            return T{};
+            KUN_LOG_ERR("'AsyncRequest::get' index exceeded");
+            ::exit(EXIT_FAILURE);
         }
         if constexpr (std::is_pointer_v<T>) {
             uintptr_t value = 0;
@@ -51,8 +74,8 @@ public:
     template<typename T>
     void set(size_t index, T t) {
         if (index + 1 >= (sizeof(data) >> 3)) {
-            KUN_LOG_ERR("'AsyncRequest.set' index exceeded");
-            return;
+            KUN_LOG_ERR("'AsyncRequest::set' index exceeded");
+            ::exit(EXIT_FAILURE);
         }
         if constexpr (std::is_pointer_v<T>) {
             uintptr_t value = 0;
@@ -83,7 +106,7 @@ public:
 
     template<typename T>
     static void resolveUndefined(v8::Local<v8::Context> context, AsyncRequest& req) {
-        static_assert(std::is_integral_v<T> || std::is_same_v<T, void>);
+        static_assert(kun::is_number<T> || std::is_same_v<T, void>);
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
         auto resolver = req.getResolver(isolate);
@@ -94,31 +117,31 @@ public:
             if (ret != -1) {
                 resolver->Resolve(context, v8::Undefined(isolate)).Check();
             } else {
-                auto ec = req.get<int>(1);
-                auto [code, phrase] = SysErr(ec);
+                auto errCode = req.get<int>(1);
+                auto [code, phrase] = SysErr(errCode);
                 auto errStr = BString::format("({}) {}", code, phrase);
-                auto errMsg = util::toV8String(isolate, errStr);
-                resolver->Reject(context, v8::Exception::TypeError(errMsg)).Check();
+                auto v8Str = util::toV8String(isolate, errStr);
+                resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
             }
         }
     }
 
     template<typename T>
     static void resolveNumber(v8::Local<v8::Context> context, AsyncRequest& req) {
-        static_assert(std::is_integral_v<T> || std::is_floating_point_v<T>);
+        static_assert(kun::is_number<T>);
         auto isolate = context->GetIsolate();
         v8::HandleScope handleScope(isolate);
         auto resolver = req.getResolver(isolate);
         auto ret = req.get<T>(0);
         if (ret != -1) {
-            auto n = v8::Number::New(isolate, static_cast<double>(ret));
-            resolver->Resolve(context, n).Check();
+            auto num = v8::Number::New(isolate, static_cast<double>(ret));
+            resolver->Resolve(context, num).Check();
         } else {
-            auto ec = req.get<int>(1);
-            auto [code, phrase] = SysErr(ec);
+            auto errCode = req.get<int>(1);
+            auto [code, phrase] = SysErr(errCode);
             auto errStr = BString::format("({}) {}", code, phrase);
-            auto errMsg = util::toV8String(isolate, errStr);
-            resolver->Reject(context, v8::Exception::TypeError(errMsg)).Check();
+            auto v8Str = util::toV8String(isolate, errStr);
+            resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }
     }
 
@@ -128,15 +151,23 @@ public:
         auto resolver = req.getResolver(isolate);
         auto ret = req.get<char*>(0);
         if (ret != nullptr) {
-            auto str = v8::String::NewFromUtf8(isolate, ret).ToLocalChecked();
-            delete []ret;
-            resolver->Resolve(context, str).Check();
+            ON_SCOPE_EXIT {
+                delete[] ret;
+            };
+            auto len = req.get<size_t>(1);
+            auto str = BString::view(ret, len);
+            auto v8Str = util::toV8String(isolate, str);
+            resolver->Resolve(context, v8Str).Check();
         } else {
-            auto ec = req.get<int>(1);
-            auto [code, phrase] = SysErr(ec);
+            auto errCode = req.get<int>(1);
+            if (errCode == 0) {
+                resolver->Resolve(context, v8::Null(isolate)).Check();
+                return;
+            }
+            auto [code, phrase] = SysErr(errCode);
             auto errStr = BString::format("({}) {}", code, phrase);
-            auto errMsg = util::toV8String(isolate, errStr);
-            resolver->Reject(context, v8::Exception::TypeError(errMsg)).Check();
+            auto v8Str = util::toV8String(isolate, errStr);
+            resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }
     }
 
@@ -146,26 +177,30 @@ public:
         auto resolver = req.getResolver(isolate);
         auto ret = req.get<void*>(0);
         if (ret != nullptr) {
-            auto nbytes = req.get<size_t>(1);
+            auto len = req.get<size_t>(1);
             auto store = v8::ArrayBuffer::NewBackingStore(
                 ret,
-                nbytes,
+                len,
                 [](void* data, size_t, void*) -> void {
                     auto buf = static_cast<char*>(data);
                     delete[] buf;
                 },
                 nullptr
             );
+            isolate->AdjustAmountOfExternalAllocatedMemory(static_cast<int64_t>(len));
             auto arrBuf = v8::ArrayBuffer::New(isolate, std::move(store));
             auto u8Arr = v8::Uint8Array::New(arrBuf, 0, arrBuf->ByteLength());
             resolver->Resolve(context, u8Arr).Check();
-            isolate->AdjustAmountOfExternalAllocatedMemory(nbytes);
         } else {
-            auto ec = req.get<int>(1);
-            auto [code, phrase] = SysErr(ec);
+            auto errCode = req.get<int>(1);
+            if (errCode == 0) {
+                resolver->Resolve(context, v8::Null(isolate)).Check();
+                return;
+            }
+            auto [code, phrase] = SysErr(errCode);
             auto errStr = BString::format("({}) {}", code, phrase);
-            auto errMsg = util::toV8String(isolate, errStr);
-            resolver->Reject(context, v8::Exception::TypeError(errMsg)).Check();
+            auto v8Str = util::toV8String(isolate, errStr);
+            resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }
     }
 

@@ -1,5 +1,5 @@
-#ifndef KUN_UTIL_CONSTANT_H
-#define KUN_UTIL_CONSTANT_H
+#ifndef KUN_UTIL_CONSTANTS_H
+#define KUN_UTIL_CONSTANTS_H
 
 #define KUN_NAME "Kun"
 
@@ -23,7 +23,7 @@
 #define KUN_PLATFORM_WIN32
 #endif
 
-#if defined(KUN_PLATFORM_LINUX) || defined(KUN_PLATFORM_DARWIN)
+#ifndef KUN_PLATFORM_WIN32
 #define KUN_PLATFORM_UNIX
 #endif
 
@@ -38,6 +38,7 @@
 #define KUN_V8_USINGS \
     using v8::Array; \
     using v8::ArrayBuffer; \
+    using v8::BigInt; \
     using v8::Boolean; \
     using v8::Context; \
     using v8::DataView; \

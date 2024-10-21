@@ -1,12 +1,6 @@
 #ifndef KUN_LOOP_ASYNC_HANDLER_H
 #define KUN_LOOP_ASYNC_HANDLER_H
 
-#include <stddef.h>
-
-#include <condition_variable>
-#include <list>
-#include <mutex>
-
 #include "env/environment.h"
 #include "loop/async_request.h"
 #include "loop/channel.h"
@@ -24,19 +18,20 @@ public:
 
     void notify();
 
-    void submit(AsyncRequest&& req);
+    Environment* getEnvironment() const {
+        return env;
+    }
 
-    bool tryClose();
+    void submit(AsyncRequest&& req) {
+        threadPool.submit(std::move(req));
+    }
 
+    bool tryClose() {
+        return threadPool.tryClose();
+    }
+
+private:
     Environment* env;
-    std::list<AsyncRequest> handleRequests;
-    std::list<AsyncRequest> resolveRequests;
-    std::condition_variable handleCond;
-    std::mutex handleMutex;
-    std::mutex resolveMutex;
-    int busyCount{0};
-    bool notified{false};
-    bool closed{false};
     ThreadPool threadPool;
 };
 

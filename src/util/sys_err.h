@@ -19,20 +19,20 @@ public:
         return SysErr::isSuccess(code);
     }
 
-    bool operator==(int code) {
+    bool operator==(int code) const {
         return this->code == code;
     }
 
-    bool operator!=(int code) {
+    bool operator!=(int code) const {
         return this->code != code;
     }
 
-    bool operator==(const SysErr& sysErr) {
-        return code == sysErr.code;
+    bool operator==(const SysErr& sysErr) const {
+        return this->code == sysErr.code;
     }
 
-    bool operator!=(const SysErr& sysErr) {
-        return code != sysErr.code;
+    bool operator!=(const SysErr& sysErr) const {
+        return this->code != sysErr.code;
     }
 
     static bool isSuccess(int code) {
@@ -51,10 +51,14 @@ public:
         SUCCESS = 10000,
         UNKNOWN_ERROR,
         RUNTIME_ERROR,
+        READ_ERROR,
+        WRITE_ERROR,
         INVALID_ARGUMENT,
         INVALID_CHARSET,
         INVALID_SOCKET_TYPE,
-        INVALID_SOCKET_VERSION
+        INVALID_SOCKET_VERSION,
+        NOT_DIRECTORY,
+        NOT_REGULAR_FILE
     };
 };
 

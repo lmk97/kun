@@ -2,13 +2,47 @@
 
 #ifdef KUN_PLATFORM_WIN32
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <userenv.h>
+#include <wchar.h>
 
+#include "sys/path.h"
 #include "util/scope_guard.h"
 #include "util/sys_err.h"
+#include "util/utils.h"
+#include "util/wstring.h"
 #include "win/err.h"
-#include "win/util.h"
+#include "win/utils.h"
+
+using kun::BString;
+using kun::Result;
+using kun::SysErr;
+using kun::WString;
+using kun::sys::joinPath;
+using kun::sys::pathExists;
+using kun::win::toBString;
+
+namespace {
+
+template<size_t N>
+inline Result<BString> getEnvVar(const wchar_t (&s)[N]) {
+    static_assert(N > 0);
+    auto len = ::GetEnvironmentVariable(s, nullptr, 0);
+    if (len != 0) {
+        WString result;
+        result.reserve(static_cast<size_t>(len));
+        auto nchars = ::GetEnvironmentVariable(s, result.data(), len);
+        if (nchars != 0) {
+            result.resize(static_cast<size_t>(nchars));
+            return toBString(result);
+        }
+    }
+    return SysErr::err("env var not found");
+}
+
+}
 
 namespace KUN_SYS {
 
@@ -18,7 +52,7 @@ Result<BString> getCwd() {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    auto buf = new TCHAR[len];
+    auto buf = new wchar_t[len];
     ON_SCOPE_EXIT {
         delete[] buf;
     };
@@ -27,53 +61,54 @@ Result<BString> getCwd() {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    if (auto result = toBString(buf, nchars)) {
-        return result.unwrap();
-    } else {
-        return result.err();
-    }
+    return toBString(buf, static_cast<size_t>(nchars));
 }
 
 Result<BString> getHomeDir() {
-    wchar_t* drive = nullptr;
-    size_t driveLen;
-    if (::_wdupenv_s(&drive, &driveLen, L"HOMEDRIVE") != 0) {
-        return SysErr::err("'HOMEDRIVE' is not found");
+    if (auto result = getEnvVar(L"USERPROFILE")) {
+        return result.unwrap();
     }
-    wchar_t* path = nullptr;
-    size_t pathLen;
+    auto process = ::GetCurrentProcess();
+    HANDLE token;
+    if (::OpenProcessToken(process, TOKEN_READ, &token) == 0) {
+        auto errCode = convertError(::GetLastError());
+        return SysErr(errCode);
+    }
     ON_SCOPE_EXIT {
-        free(drive);
-        free(path);
+        if (::CloseHandle(token) == 0) {
+            auto errCode = convertError(::GetLastError());
+            KUN_LOG_ERR(errCode);
+        }
     };
-    if (::_wdupenv_s(&path, &pathLen, L"HOMEPATH") != 0) {
-        return SysErr::err("'HOMEPATH' is not found");
+    DWORD len = 0;
+    ::GetUserProfileDirectoryW(token, nullptr, &len);
+    if (len == 0) {
+        return SysErr::err("home dir not found");
     }
-    BString result;
-    result.reserve(driveLen + pathLen);
-    if (auto r = toBString(drive, driveLen)) {
-        result += r.unwrap();
-    } else {
-        return r.err();
+    WString result;
+    result.reserve(static_cast<size_t>(len));
+    if (::GetUserProfileDirectoryW(token, result.data(), &len) == 0) {
+        auto errCode = convertError(::GetLastError());
+        return SysErr(errCode);
     }
-    if (auto r = toBString(path, pathLen)) {
-        result += r.unwrap();
-    } else {
-        return r.err();
-    }
-    return result;
+    result.resize(static_cast<size_t>(len));
+    return toBString(result);
 }
 
 Result<BString> getAppDir() {
-    wchar_t* dir = nullptr;
-    size_t dirLen;
-    if (::_wdupenv_s(&dir, &dirLen, L"LOCALAPPDATA") != 0) {
-        return SysErr::err("'LOCALAPPDATA' is not found");
+    if (auto result = getEnvVar(L"LOCALAPPDATA")) {
+        return result.unwrap();
     }
-    ON_SCOPE_EXIT {
-        free(dir);
-    };
-    return toBString(dir, dirLen);
+    if (auto result = getHomeDir()) {
+        auto homeDir = result.unwrap();
+        auto appDir = joinPath(homeDir, "AppData/Local");
+        if (pathExists(appDir)) {
+            return appDir;
+        }
+        return homeDir;
+    } else {
+        return result.err();
+    }
 }
 
 }

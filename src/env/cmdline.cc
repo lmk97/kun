@@ -7,6 +7,8 @@
 #include "sys/path.h"
 
 using kun::BString;
+using kun::Cmdline;
+using kun::sys::eprintln;
 using kun::sys::println;
 using kun::sys::toAbsolutePath;
 
@@ -25,13 +27,14 @@ struct Option {
     const char* longName;
     const char* value;
     const char* description;
-    void (*callback)(const BString& value);
+    void (*callback)(int optionName, const BString& optionValue);
 };
 
-void printHelp(const BString& value);
-void printVersion(const BString& value);
+void printHelp(int optionName, const BString& optionValue);
+void printVersion(int optionName, const BString& optionValue);
+void checkValue(int optionName, const BString& optionValue);
 
-Option OPTIONS[] = {
+const Option OPTIONS[] = {
     {
         "-h", "--help", nullptr,
         "print command line options",
@@ -40,7 +43,7 @@ Option OPTIONS[] = {
     {
         nullptr, "--thread-pool-size", "4",
         "set the thread pool size",
-        nullptr
+        checkValue
     },
     {
         nullptr, "--v8-flags", "",
@@ -54,7 +57,7 @@ Option OPTIONS[] = {
     }
 };
 
-void printHelp(const BString& value) {
+void printHelp(int optionName, const BString& optionValue) {
     println("Usage: kun [options] [script.js] [arguments]\n");
     println("Options:");
     constexpr int n = sizeof(OPTIONS) / sizeof(Option);
@@ -68,7 +71,7 @@ void printHelp(const BString& value) {
             str += ", ";
         }
         str.append(option.longName, strlen(option.longName));
-        str += "\n      ";
+        str += "\n    ";
         str.append(option.description, strlen(option.description));
         if (option.value != nullptr && strlen(option.value) > 0) {
             str += ". default: ";
@@ -79,9 +82,28 @@ void printHelp(const BString& value) {
     ::exit(EXIT_SUCCESS);
 }
 
-void printVersion(const BString& value) {
+void printVersion(int optionName, const BString& optionValue) {
     println("{} {}", KUN_NAME, KUN_VERSION);
     ::exit(EXIT_SUCCESS);
+}
+
+void checkValue(int optionName, const BString& optionValue) {
+    constexpr int n = sizeof(OPTIONS) / sizeof(Option);
+    if (optionName < 0 || optionName >= n) {
+        eprintln("Unknown option name '{}'", optionName);
+        return;
+    }
+    const auto& option = OPTIONS[optionName];
+    if (optionName == Cmdline::THREAD_POOL_SIZE) {
+        auto first = optionValue.data();
+        auto last = first + optionValue.length();
+        int value = 0;
+        auto result = std::from_chars(first, last, value);
+        if (result.ec != std::errc() || value < 2) {
+            eprintln("'{}' requires an integer at least 2", option.longName);
+            ::exit(EXIT_FAILURE);
+        }
+    }
 }
 
 int findOption(const BString& name, OptionKind& optionKind) {
@@ -90,34 +112,29 @@ int findOption(const BString& name, OptionKind& optionKind) {
         const auto& option = OPTIONS[i];
         BString shortName;
         if (option.shortName != nullptr) {
-            shortName = BString::view(
-                option.shortName,
-                strlen(option.shortName)
-            );
+            shortName = BString::view(option.shortName, strlen(option.shortName));
         }
-        if (name.length() == 2 && name == shortName) {
+        if (!shortName.empty() && name == shortName) {
             optionKind = OptionKind::SHORT_NAME;
             return i;
         }
-        auto longName = BString::view(
-            option.longName,
-            strlen(option.longName)
-        );
+        auto longName = BString::view(option.longName, strlen(option.longName));
         if (name == longName) {
             optionKind = OptionKind::LONG_NAME;
             return i;
         }
-        if (name.length() > longName.length() + 1 &&
+        if (
+            name.length() > longName.length() + 1 &&
             name.startsWith(longName) &&
             name[longName.length()] == '='
         ) {
             optionKind = OptionKind::LONG_WITH_VALUE;
             return i;
         }
-        if (name.length() > 2 &&
-            shortName.length() == 2 &&
-            name.startsWith(shortName) &&
-            !name.contains("=")
+        if (
+            !shortName.empty() &&
+            name.length() > shortName.length() &&
+            name.startsWith(shortName)
         ) {
             optionKind = OptionKind::SHORT_WITH_VALUE;
             return i;
@@ -133,8 +150,8 @@ namespace kun {
 Cmdline::Cmdline(int argc, char** argv) {
     auto argv0 = BString::view(argv[0], strlen(argv[0]));
     programPath = toAbsolutePath(argv0).unwrap();
-    options.reserve(argc);
-    arguments.reserve(argc);
+    options.reserve(static_cast<size_t>(argc));
+    arguments.reserve(static_cast<size_t>(argc));
     bool scriptFound = false;
     for (int i = 1; i < argc; i++) {
         auto name = BString::view(argv[i], strlen(argv[i]));
@@ -143,47 +160,54 @@ Cmdline::Cmdline(int argc, char** argv) {
             scriptFound = true;
             continue;
         }
-        if (!scriptFound) {
-            auto optionKind = OptionKind::UNKNOWN;
-            auto index = findOption(name, optionKind);
-            if (index == -1) {
-                println("bad option '{}'", name);
-                ::exit(EXIT_FAILURE);
-                break;
-            }
-            const auto& option = OPTIONS[index];
-            BString value;
-            if (option.value == nullptr) {
-                options.emplace(index, "");
-            } else {
-                if (optionKind == OptionKind::SHORT_WITH_VALUE) {
-                    value = name.substring(2);
-                } else if (optionKind == OptionKind::LONG_WITH_VALUE) {
-                    auto j = name.find("=");
-                    value = name.substring(j + 1);
-                } else {
-                    i++;
-                    if (i >= argc) {
-                        println("'{}' requires a value", name);
-                        ::exit(EXIT_FAILURE);
-                        break;
-                    }
-                    value = BString::view(argv[i], strlen(argv[i]));
-                }
-                options.emplace(index, BString(value.data(), value.length()));
-            }
-            if (option.callback != nullptr) {
-                option.callback(value);
-            }
-        } else {
+        if (scriptFound) {
             arguments.emplace_back(name.data(), name.length());
+            continue;
+        }
+        auto optionKind = OptionKind::UNKNOWN;
+        const auto optionName = findOption(name, optionKind);
+        if (optionName == -1) {
+            println("bad option '{}'", name);
+            ::exit(EXIT_FAILURE);
+        }
+        const auto& option = OPTIONS[optionName];
+        BString value;
+        if (option.value == nullptr) {
+            options.emplace(optionName, "");
+        } else {
+            if (optionKind == OptionKind::SHORT_WITH_VALUE) {
+                auto j = strlen(option.shortName);
+                value = name.substring(j);
+            } else if (optionKind == OptionKind::LONG_WITH_VALUE) {
+                auto j = name.find("=");
+                value = name.substring(j + 1);
+            } else {
+                i++;
+                if (i >= argc) {
+                    println("'{}' requires a value", name);
+                    ::exit(EXIT_FAILURE);
+                }
+                value = BString::view(argv[i], strlen(argv[i]));
+            }
+            options.emplace(optionName, BString(value.data(), value.length()));
+        }
+        if (option.callback != nullptr) {
+            option.callback(optionName, value);
         }
     }
 }
 
+bool Cmdline::hasValue(int optionName) const {
+    constexpr int n = sizeof(OPTIONS) / sizeof(Option);
+    if (optionName >= 0 && optionName < n) {
+        return OPTIONS[optionName].value != nullptr;
+    }
+    return false;
+}
+
 Result<BString> Cmdline::getDefaultValue(int optionName) const {
     constexpr int n = sizeof(OPTIONS) / sizeof(Option);
-    if (optionName < n) {
+    if (optionName >= 0 && optionName < n) {
         const auto& option = OPTIONS[optionName];
         if (option.value != nullptr) {
             return BString::view(option.value, strlen(option.value));

@@ -2,18 +2,20 @@
 
 #ifdef KUN_PLATFORM_UNIX
 
-#include <errno.h>
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stddef.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
+#include <sys/stat.h>
+
+#include <vector>
 
 #include "sys/path.h"
 #include "util/scope_guard.h"
 #include "util/sys_err.h"
-#include "util/util.h"
+#include "util/utils.h"
 
 using kun::sys::joinPath;
 
@@ -34,19 +36,17 @@ Result<BString> readFile(const BString& path) {
         return SysErr(errno);
     }
     if (!S_ISREG(st.st_mode)) {
-        return SysErr::err("Not a file");
+        return SysErr(SysErr::NOT_REGULAR_FILE);
     }
-    auto nbytes = ::lseek(fd, 0, SEEK_END);
-    if (nbytes == -1) {
-        return SysErr(errno);
-    }
-    if (::lseek(fd, 0, SEEK_SET) == -1) {
-        return SysErr(errno);
-    }
+    auto nbytes = st.st_size;
     BString result;
+    if (nbytes <= 0) {
+        return result;
+    }
     result.reserve(static_cast<size_t>(nbytes));
-    char* p = result.data();
-    auto end = p + nbytes;
+    char* begin = result.data();
+    auto end = begin + nbytes;
+    auto p = begin;
     while (true) {
         size_t len = end - p;
         auto rc = ::read(fd, p, len);
@@ -72,10 +72,11 @@ Result<bool> makeDirs(const BString& path) {
     BString dirPath;
     dirPath.reserve(len);
     while (p <= end) {
-        if (*p == '/' || p == end) {
+        if (p == end || *p == '/') {
             dirPath.append(prev, p - prev);
             prev = p;
-            if (::access(dirPath.c_str(), F_OK) == -1 &&
+            if (
+                ::access(dirPath.c_str(), F_OK) == -1 &&
                 ::mkdir(dirPath.c_str(), 0777) == -1
             ) {
                 return SysErr(errno);
@@ -87,40 +88,49 @@ Result<bool> makeDirs(const BString& path) {
 }
 
 Result<bool> removeDir(const BString& path) {
-    DIR* dp = ::opendir(path.c_str());
-    if (dp == nullptr) {
-        return SysErr(errno);
-    }
-    ON_SCOPE_EXIT {
-        if (::closedir(dp) == -1) {
-            KUN_LOG_ERR(errno);
+    std::vector<BString> dirs;
+    dirs.reserve(128);
+    dirs.emplace_back(BString::view(path));
+    size_t index = 0;
+    while (true) {
+        if (index >= dirs.size()) {
+            break;
         }
-    };
-    struct dirent* de = nullptr;
-    struct stat st;
-    while ((de = ::readdir(dp)) != nullptr) {
-        if (strcmp(de->d_name, ".") == 0 ||
-            strcmp(de->d_name, "..") == 0
-        ) {
-            continue;
-        }
-        auto name = BString::view(de->d_name, strlen(de->d_name));
-        auto filePath = joinPath(path, name);
-        if (::stat(filePath.c_str(), &st) == -1) {
+        const auto& dir = dirs[index++];
+        DIR* dp = ::opendir(dir.c_str());
+        if (dp == nullptr) {
             return SysErr(errno);
         }
-        if (S_ISREG(st.st_mode)) {
-            if (::unlink(filePath.c_str()) == -1) {
+        ON_SCOPE_EXIT {
+            if (::closedir(dp) == -1) {
+                KUN_LOG_ERR(errno);
+            }
+        };
+        struct dirent* de = nullptr;
+        while ((de = ::readdir(dp)) != nullptr) {
+            auto name = BString::view(de->d_name, strlen(de->d_name));
+            if (name == "." || name == "..") {
+                continue;
+            }
+            auto filePath = joinPath(dir, name);
+            struct stat st;
+            if (::stat(filePath.c_str(), &st) == -1) {
                 return SysErr(errno);
             }
-        } else if (S_ISDIR(st.st_mode)) {
-            if (auto result = removeDir(filePath); !result) {
-                return result.err();
+            if (S_ISDIR(st.st_mode)) {
+                dirs.emplace_back(std::move(filePath));
+            } else if (S_ISREG(st.st_mode)) {
+                if (::unlink(filePath.c_str()) == -1) {
+                    return SysErr(errno);
+                }
             }
         }
     }
-    if (::rmdir(path.c_str()) == -1) {
-        return SysErr(errno);
+    for (auto iter = dirs.crbegin(); iter != dirs.crend(); ++iter) {
+        const auto& dir = *iter;
+        if (::rmdir(dir.c_str()) == -1) {
+            return SysErr(errno);
+        }
     }
     return true;
 }

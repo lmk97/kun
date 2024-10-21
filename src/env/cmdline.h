@@ -33,6 +33,9 @@ public:
             std::is_integral_v<T> ||
             std::is_floating_point_v<T>
         );
+        if (!hasValue(optionName)) {
+            return SysErr(SysErr::INVALID_ARGUMENT);
+        }
         BString optionValue;
         auto iter = options.find(optionName);
         if (iter != options.end()) {
@@ -82,6 +85,8 @@ public:
     };
 
 private:
+    bool hasValue(int optionName) const;
+
     Result<BString> getDefaultValue(int optionName) const;
 
     BString programPath;

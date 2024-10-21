@@ -29,8 +29,8 @@ function untar(buf) {
     offset = 0;
     while (offset < u8Arr.byteLength) {
         const data = u8Arr.subarray(offset, offset + 512);
+        offset += 512;
         if (data[0] === 0) {
-            offset += 512;
             continue;
         }
         const header = {};
@@ -51,11 +51,8 @@ function untar(buf) {
             header.devmajor = readString(data, 329, 8);
             header.devminor = readString(data, 337, 8);
             header.prefix = readString(data, 345, 155);
-            if (header.prefix.length > 0) {
-                header.name = header.prefix + header.name;
-            }
+            header.name = header.prefix + header.name;
         }
-        offset += 512;
         if (header.typeflag === '0') {
             header.fileType = 'file';
             header.filePath = header.name;
@@ -83,12 +80,16 @@ async function ungzip(srcPath, dstPath) {
             console.log(err);
             resolve(false);
         });
-        ws.on('finish', () => {
-            resolve(true);
+        rs.on('error', (err) => {
+            console.log(err);
+            resolve(false);
         });
         ws.on('error', (err) => {
             console.log(err);
             resovle(false);
+        });
+        ws.on('finish', () => {
+            resolve(true);
         });
         rs.pipe(gz).pipe(ws);
     });
@@ -109,25 +110,25 @@ function getBuildType() {
         if (name === '--release') {
             return 'release';
         }
+        if (name === '--debug') {
+            return 'debug';
+        }
+        console.log(`bad option '${name}'`);
     }
     return 'debug';
 }
 
 async function fetchDeps(config) {
     for (const name in config.deps) {
-        const { version, libs } = config.deps[name];
-        let url = config.deps[name].url;
-        if (url.endsWith('.git')) {
-            url = url.substring(0, url.length - 4);
-        }
+        const { url, version, libs } = config.deps[name];
         const urlPrefix = `${url}/releases/download/v${version}`;
-        const depIncludeDir = `${config.includeDir}/${name}`;
-        if (!fs.existsSync(depIncludeDir)) {
-            const fileName = `${name}-include.tar.gz`;
-            const targzPath = `${config.includeDir}/${fileName}`;
+        const includeDir = `${config.includeDir}/${name}`;
+        if (!fs.existsSync(includeDir)) {
+            const filename = `${name}-include.tar.gz`;
+            const targzPath = `${config.includeDir}/${filename}`;
             if (!fs.existsSync(targzPath)) {
-                const downloadUrl = `${urlPrefix}/${fileName}`;
-                console.log(`Downloading '${downloadUrl}'`);
+                const downloadUrl = `${urlPrefix}/${filename}`;
+                console.log(`Download '${downloadUrl}'`);
                 const res = await fetch(downloadUrl);
                 if (res.ok) {
                     const arrBuf = await res.arrayBuffer();
@@ -138,18 +139,18 @@ async function fetchDeps(config) {
             }
             if (fs.existsSync(targzPath)) {
                 const tarPath = targzPath.substring(0, targzPath.length - 3);
-                console.log(`Ungzip      '${targzPath}' to '${tarPath}'`);
-                const isSuccess = await ungzip(targzPath, tarPath);
-                if (isSuccess) {
-                    console.log(`Untar       '${tarPath}' to '${depIncludeDir}'`);
-                    fs.mkdirSync(depIncludeDir);
+                console.log(`Ungzip   '${targzPath}' to '${tarPath}'`);
+                const success = await ungzip(targzPath, tarPath);
+                if (success) {
+                    console.log(`Untar    '${tarPath}' to '${includeDir}'`);
+                    fs.mkdirSync(includeDir);
                     const tarBuf = fs.readFileSync(tarPath);
                     untar(tarBuf).forEach((info) => {
                         let filePath = info.filePath;
                         if (filePath.startsWith('./')) {
                             filePath = filePath.substring(2);
                         }
-                        filePath = `${depIncludeDir}/${filePath}`;
+                        filePath = `${includeDir}/${filePath}`;
                         if (info.fileType === 'dir') {
                             fs.mkdirSync(filePath, { recursive: true });
                         } else {
@@ -158,24 +159,24 @@ async function fetchDeps(config) {
                     });
                 } else {
                     console.log(`ERROR: Ungzip '${targzPath}'`);
-                    fs.unlinkSync(depIncludeDir);
+                    fs.unlinkSync(includeDir);
                 }
                 fs.unlinkSync(tarPath);
-                console.log(`Resolved    '${depIncludeDir}'`);
+                console.log(`Resolved '${includeDir}'`);
             }
         } else {
-            console.log(`Exists      '${depIncludeDir}'`);
+            console.log(`Exists   '${includeDir}'`);
         }
         const { libPrefix, libSuffix } = config;
         const { arch, sub, vendor, sys, env } = config.triple;
         const triple = `${arch}${sub}-${vendor}-${sys}-${env}`;
         for (let i = 0; i < libs.length; i++) {
-            const fileName = `${libs[i]}-lib-${triple}.gz`;
-            const gzPath = `${config.libDir}/${fileName}`;
+            const filename = `${libs[i]}-lib-${triple}.gz`;
+            const gzPath = `${config.libDir}/${filename}`;
             const libPath = `${config.libDir}/${libPrefix}${libs[i]}${libSuffix}`;
             if (!fs.existsSync(gzPath)) {
-                const downloadUrl = `${urlPrefix}/${fileName}`;
-                console.log(`Downloading '${downloadUrl}'`);
+                const downloadUrl = `${urlPrefix}/${filename}`;
+                console.log(`Download '${downloadUrl}'`);
                 const res = await fetch(downloadUrl);
                 if (res.ok) {
                     const arrBuf = await res.arrayBuffer();
@@ -184,13 +185,13 @@ async function fetchDeps(config) {
                     console.log(`ERROR: fetch '${downloadUrl}'`);
                 }
             } else {
-                console.log(`Exists      '${gzPath}'`);
+                console.log(`Exists   '${gzPath}'`);
             }
             if (fs.existsSync(gzPath)) {
-                console.log(`Ungzip      '${gzPath}' to '${libPath}'`);
-                const isSuccess = await ungzip(gzPath, libPath);
-                if (isSuccess) {
-                    console.log(`Resolved    '${libPath}'`);
+                console.log(`Ungzip   '${gzPath}' to '${libPath}'`);
+                const success = await ungzip(gzPath, libPath);
+                if (success) {
+                    console.log(`Resolved '${libPath}'`);
                 } else {
                     console.log(`ERROR: Ungzip '${gzName}'`);
                     fs.unlinkSync(libPath);
@@ -200,28 +201,28 @@ async function fetchDeps(config) {
     }
 }
 
-function findSourceFiles(dir, result) {
-    let files = fs.readdirSync(dir);
-    for (let i = 0; i < files.length; i++) {
-        let path = `${dir}/${files[i]}`;
+function findSourcePaths(dir, result) {
+    const names = fs.readdirSync(dir);
+    for (let i = 0; i < names.length; i++) {
+        const path = `${dir}/${names[i]}`;
         const st = fs.statSync(path);
         if (st.isDirectory()) {
-            findSourceFiles(path, result);
+            findSourcePaths(path, result);
         } else if (path.endsWith('.cc')) {
             result.push(path);
         }
     }
 }
 
-function findIncludeFiles(sourceFilePath) {
+function findHeaderPaths(sourcePath) {
     const result = [];
-    let content = fs.readFileSync(sourceFilePath).toString();
-    let index = sourceFilePath.lastIndexOf('.');
+    let content = fs.readFileSync(sourcePath).toString();
+    const index = sourcePath.lastIndexOf('.');
     if (index !== -1) {
-        const includeFilePath = sourceFilePath.substring(0, index) + '.h';
-        if (fs.existsSync(includeFilePath)) {
+        const headerPath = sourcePath.substring(0, index) + '.h';
+        if (fs.existsSync(headerPath)) {
             content += '\n';
-            content += fs.readFileSync(includeFilePath).toString();
+            content += fs.readFileSync(headerPath).toString();
         }
     }
     let prev = 0;
@@ -229,12 +230,15 @@ function findIncludeFiles(sourceFilePath) {
         if (content[i] !== '\n') {
             continue;
         }
-        let str = content.substring(prev, i);
-        if (str.startsWith('#include') && !str.includes('<')) {
-            const begin = str.indexOf('"');
-            const end = str.indexOf('"', begin + 1);
-            if (begin != -1 && end != -1) {
-                const path = str.substring(begin + 1, end);
+        let line = content.substring(prev, i);
+        if (line.startsWith('#include') && !line.includes('<')) {
+            const begin = line.indexOf('"');
+            let end = -1;
+            if (begin !== -1) {
+                end = line.indexOf('"', begin + 1);
+            }
+            if (begin !== -1 && end !== -1) {
+                const path = line.substring(begin + 1, end);
                 if (!result.includes(path)) {
                     result.push(path);
                 }
@@ -253,48 +257,44 @@ function convertPath(path, platform) {
     }
 }
 
-function parseProjectObject(config) {
-    let objSuffix = '';
-    if (config.platform === 'win32') {
-        objSuffix = '.obj';
-    } else {
-        objSuffix = '.o';
-    }
+function parseProject(config) {
+    const { platform, srcDir, distDir } = config;
+    const objSuffix = platform === 'win32' ? '.obj' : '.o';
     const result = {};
-    const sourceFiles = [];
-    findSourceFiles(config.srcDir, sourceFiles);
-    for (let i = 0; i < sourceFiles.length; i++) {
-        const includeFiles = findIncludeFiles(sourceFiles[i]);
-        const includePaths = [];
-        for (let j = 0; j < includeFiles.length; j++) {
-            const includePath = `${config.srcDir}/${includeFiles[j]}`;
-            if (fs.existsSync(includePath)) {
-                includePaths.push(convertPath(includePath, config.platform));
+    const sourcePaths = [];
+    findSourcePaths(srcDir, sourcePaths);
+    for (const sourcePath of sourcePaths) {
+        const sourceHeaderPaths = findHeaderPaths(sourcePath);
+        const headerPaths = [];
+        for (const headerPath of sourceHeaderPaths) {
+            const path = `${srcDir}/${headerPath}`;
+            if (fs.existsSync(path)) {
+                headerPaths.push(convertPath(path, platform));
             }
         }
-        const subpath = sourceFiles[i].substring(config.srcDir.length);
-        let index = subpath.lastIndexOf('.');
+        const suffix = sourcePath.substring(srcDir.length);
+        let index = suffix.lastIndexOf('.');
+        if (index === -1) {
+            continue;
+        }
+        const objPath = distDir + suffix.substring(0, index) + objSuffix;
+        index = objPath.lastIndexOf('/');
         if (index !== -1) {
-            const objPath = config.distDir + subpath.substring(0, index) + objSuffix;
-            index = objPath.lastIndexOf('/');
-            if (index !== -1) {
-                const objDir = objPath.substring(0, index);
-                if (!fs.existsSync(objDir)) {
-                    fs.mkdirSync(objDir, { recursive: true });
-                }
+            const objDir = objPath.substring(0, index);
+            if (!fs.existsSync(objDir)) {
+                fs.mkdirSync(objDir, { recursive: true });
             }
-            const sourcePath = convertPath(sourceFiles[i], config.platform);
-            result[sourcePath] = {
-                includePaths: includePaths,
-                objectPath: convertPath(objPath, config.platform)
-            };
         }
+        result[convertPath(sourcePath, platform)] = {
+            headerPaths: headerPaths,
+            objectPath: convertPath(objPath, platform)
+        };
     }
     return result;
 }
 
 function createMakefile(config) {
-    const projectObject = parseProjectObject(config);
+    const projectObject = parseProject(config);
     let targetSuffix = '';
     let targetPath = '';
     let objectPaths = '';
@@ -313,19 +313,25 @@ function createMakefile(config) {
         objectPaths += projectObject[sourcePath].objectPath + ' ';
     }
     if (config.platform === 'win32') {
-        libs += ' shlwapi.lib ws2_32.lib winmm.lib dbghelp.lib advapi32.lib';
+        libs += ' shlwapi.lib ws2_32.lib userenv.lib';
+        libs += ' winmm.lib dbghelp.lib advapi32.lib';
         includes += ' /I' + convertPath(config.srcDir, config.platform);
+        const { libDir, libPrefix, libSuffix } = config;
         for (const name in config.deps) {
-            const includePath = `${config.includeDir}/${name}`;
-            includes += ' /I' + convertPath(includePath, config.platform);
+            const includeDir = `${config.includeDir}/${name}`;
+            includes += ' /I' + convertPath(includeDir, config.platform);
             for (let i = 0; i < config.deps[name].libs.length; i++) {
                 const libName = config.deps[name].libs[i];
-                const libPath = `${config.libDir}/${config.libPrefix}${libName}${config.libSuffix}`;
+                const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
                 libs += ' ' + convertPath(libPath, config.platform);
             }
         }
-        cxxflags += ' /std:c++17 /utf-8 /EHsc /wd4100 /wd4458 /wd4127 /wd4003 /nologo /DUNICODE /DWIN32_LEAN_AND_MEAN /DV8_COMPRESS_POINTERS';
-        if (config.buildType === 'realease') {
+        cxxflags += ' /std:c++17 /utf-8 /EHsc /nologo';
+        cxxflags += ' /Zc:__cplusplus /Zc:preprocessor';
+        cxxflags += ' /wd4100 /wd4127 /wd4458';
+        cxxflags += ' /DUNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN';
+        cxxflags += ' /DV8_COMPRESS_POINTERS';
+        if (config.buildType === 'release') {
             cxxflags += ' /O2';
         } else {
             cxxflags += ' /W4 /Od /Z7';
@@ -337,16 +343,20 @@ function createMakefile(config) {
         }
     } else {
         includes += ` -I ${config.srcDir}`;
+        const { libDir, libPrefix, libSuffix } = config;
         for (const name in config.deps) {
             includes += ` -I ${config.includeDir}/${name}`;
             for (let i = 0; i < config.deps[name].libs.length; i++) {
                 const libName = config.deps[name].libs[i];
-                const libPath = `${config.libDir}/${config.libPrefix}${libName}${config.libSuffix}`;
+                const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
                 libs += ' ' + libPath;
             }
         }
-        cxxflags += ' -m64 -std=c++17 -march=native -mtune=native -Wpedantic -Wall -Wextra -Wno-unused-parameter -Wno-template-id-cdtor -DV8_COMPRESS_POINTERS';
-        if (config.buildType === 'realease') {
+        cxxflags += ' -std=c++17 -march=native -mtune=native';
+        cxxflags += ' -Wpedantic -Wall -Wextra';
+        cxxflags += ' -Wno-unused-parameter -Wno-template-id-cdtor';
+        cxxflags += ' -DV8_COMPRESS_POINTERS';
+        if (config.buildType === 'release') {
             cxxflags += ' -O3';
         } else {
             cxxflags += ' -g -no-pie -Og';
@@ -356,24 +366,29 @@ function createMakefile(config) {
     let content = '';
     content += `${targetPath}: ${objectPaths}\n`;
     if (config.platform === 'win32') {
-        content += `\tcl.exe /nologo ${libs} ${objectPaths} /Fe${targetPath} /link ${ldflags}\n`;
+        content += `\tcl.exe /nologo ${libs} ${objectPaths}`;
+        content += ` /Fe${targetPath} /link ${ldflags}\n`;
     } else {
-        content += `\tg++ ${ldflags} -Wl,--start-group ${libs} ${objectPaths} -Wl,--end-group -o ${targetPath}\n`;
+        content += `\tg++ ${ldflags}`;
+        content += ` -Wl,--start-group ${libs} ${objectPaths} -Wl,--end-group`;
+        content += ` -o ${targetPath}\n`;
         if (config.buildType === 'release') {
             content += `\tstrip --strip-debug --strip-unneeded ${targetPath}\n`;
         }
     }
     for (const sourcePath in projectObject) {
         const objectPath = projectObject[sourcePath].objectPath;
-        let includePaths = '';
-        for (let i = 0; i < projectObject[sourcePath].includePaths.length; i++) {
-            includePaths += projectObject[sourcePath].includePaths[i] + ' ';
+        let headerPaths = '';
+        for (const path of projectObject[sourcePath].headerPaths) {
+            headerPaths += path + ' ';
         }
-        content += `\n${objectPath}: ${sourcePath} ${includePaths}\n`;
+        content += `\n${objectPath}: ${sourcePath} ${headerPaths}\n`;
         if (config.platform === 'win32') {
-            content += `\tcl.exe ${cxxflags} ${includes} /c /Tp${sourcePath} /Fo${objectPath}\n`;
+            content += `\tcl.exe ${cxxflags} ${includes}`;
+            content += ` /c /Tp${sourcePath} /Fo${objectPath}\n`;
         } else {
-            content += `\tg++ ${cxxflags} ${includes} -c ${sourcePath} -o ${objectPath}\n`;
+            content += `\tg++ ${cxxflags} ${includes} `;
+            content += ` -c ${sourcePath} -o ${objectPath}\n`;
         }
     }
     fs.writeFileSync('./Makefile', content);
