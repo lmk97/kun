@@ -203,8 +203,8 @@ bool EventLoop::addChannel(Channel* channel) {
         auto ms = timer->milliseconds;
         auto ns = timer->nanoseconds;
         auto ts = nanosecond().unwrap();
-        ms += static_cast<uint64_t>(ts.tv_sec * 1000);
-        ns += static_cast<uint64_t>(ts.tv_nsec);
+        ms += ts.tv_sec * 1000;
+        ns += ts.tv_nsec;
         usecTimers.push(timer, ms * 1000 + ns / 1000);
         return true;
     } else {

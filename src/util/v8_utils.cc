@@ -1,13 +1,13 @@
 #include "util/v8_utils.h"
 
-#include <stddef.h>
-
 #include "util/constants.h"
+#include "util/utils.h"
 
 KUN_V8_USINGS;
 
 using v8::Exception;
 using v8::Message;
+using v8::PropertyDescriptor;
 using v8::StackTrace;
 using v8::SymbolObject;
 using kun::BString;
@@ -26,8 +26,8 @@ bool findClassNameAndRecv(
     size_t prev = 0;
     auto index = name.find(".");
     while (index != BString::END) {
-        auto key = name.substring(prev, index);
         prev = index + 1;
+        auto key = name.substring(prev, index);
         Local<Object> tmp;
         if (!fromObject(context, obj, key, tmp)) {
             return false;
@@ -61,7 +61,7 @@ BString toBString(Local<Context> context, Local<Value> value) {
         }
         if (!desc.IsEmpty() && !desc->IsUndefined()) {
             auto v8Str = desc.As<String>();
-            auto len = static_cast<size_t>(8 + v8Str->Utf8Length(isolate));
+            auto len = 8 + v8Str->Utf8Length(isolate);
             result.reserve(len);
             result += "Symbol(";
             v8Str->WriteUtf8(isolate, result.data() + 7);
@@ -73,7 +73,7 @@ BString toBString(Local<Context> context, Local<Value> value) {
     } else {
         Local<String> v8Str;
         if (value->ToString(context).ToLocal(&v8Str)) {
-            auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+            auto len = v8Str->Utf8Length(isolate);
             result.reserve(len);
             v8Str->WriteUtf8(isolate, result.data());
             result.resize(len);
@@ -89,7 +89,7 @@ BString formatSourceLine(Local<Context> context, Local<Message> message) {
     auto column = message->GetStartColumn(context).FromMaybe(-1);
     Local<String> v8Str;
     if (column != -1 && message->GetSourceLine(context).ToLocal(&v8Str)) {
-        auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+        auto len = v8Str->Utf8Length(isolate);
         result.reserve((len << 1) + 15);
         v8Str->WriteUtf8(isolate, result.data());
         result.resize(len);
@@ -106,11 +106,12 @@ BString formatStackTrace(Local<Context> context, Local<StackTrace> stackTrace) {
     auto isolate = context->GetIsolate();
     HandleScope handleScope(isolate);
     BString result;
-    if (stackTrace.IsEmpty() || stackTrace->GetFrameCount() <= 0) {
+    const auto frameCount = stackTrace->GetFrameCount();
+    if (stackTrace.IsEmpty() || frameCount <= 0) {
         return result;
     }
-    result.reserve(1023);
-    for (int i = 0; i < stackTrace->GetFrameCount(); i++) {
+    result.reserve(128 * frameCount);
+    for (int i = 0; i < frameCount; i++) {
         auto frame = stackTrace->GetFrame(isolate, i);
         auto scriptName = frame->GetScriptNameOrSourceURL();
         auto path = toBString(context, scriptName);
@@ -188,6 +189,118 @@ bool instanceOf(Local<Context> context, Local<Value> value, const BString& name)
         return value->InstanceOf(context, func).FromMaybe(false);
     }
     return false;
+}
+
+void defineAccessor(
+    Local<Context> context,
+    Local<Object> obj,
+    const BString& name,
+    const AccessorDescriptor& desc
+) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
+    auto property = toV8String(isolate, name);
+    Local<Value> get;
+    if (desc.get != nullptr) {
+        Local<Function> func;
+        if (Function::New(context, desc.get, property).ToLocal(&func)) {
+            auto str = BString::format("get {}", name);
+            auto v8Str = toV8String(isolate, str);
+            func->SetName(v8Str);
+            get = func;
+        } else {
+            KUN_LOG_ERR("defineAccessor");
+            return;
+        }
+    } else {
+        get = v8::Undefined(isolate);
+    }
+    Local<Value> set;
+    if (desc.set != nullptr) {
+        Local<Function> func;
+        if (Function::New(context, desc.set, property).ToLocal(&func)) {
+            auto str = BString::format("set {}", name);
+            auto v8Str = toV8String(isolate, str);
+            func->SetName(v8Str);
+            set = func;
+        } else {
+            KUN_LOG_ERR("defineAccessor");
+            return;
+        }
+    } else {
+        set = v8::Undefined(isolate);
+    }
+    PropertyDescriptor propDesc(get, set);
+    propDesc.set_configurable(desc.configurable);
+    propDesc.set_enumerable(desc.enumerable);
+    obj->DefineProperty(context, property, propDesc).Check();
+}
+
+void inherit(Local<Context> context, Local<Function> child, const BString& parentName) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
+    BString className;
+    Local<Object> recv;
+    if (findClassNameAndRecv(context, parentName, className, recv)) {
+        Local<Function> parent;
+        if (fromObject(context, recv, className, parent)) {
+            auto parentProto = getPrototypeOf(context, parent);
+            auto childProto = getPrototypeOf(context, child);
+            if (!parentProto.IsEmpty() && !childProto.IsEmpty()) {
+                childProto->SetPrototype(context, parentProto).Check();
+                return;
+            }
+        }
+    }
+    KUN_LOG_ERR("Could not inherit from '{}'", parentName);
+}
+
+Local<Object> createObject(Local<Context> context, const BString& name, int fieldCount) {
+    auto isolate = context->GetIsolate();
+    EscapableHandleScope handleScope(isolate);
+    BString className;
+    Local<Object> recv;
+    if (findClassNameAndRecv(context, name, className, recv)) {
+        Local<Function> constructor;
+        if (fromObject(context, recv, className, constructor)) {
+            auto proto = getPrototypeOf(context, constructor);
+            if (!proto.IsEmpty()) {
+                auto objTmpl = ObjectTemplate::New(isolate);
+                if (fieldCount > 0) {
+                    objTmpl->SetInternalFieldCount(fieldCount);
+                }
+                auto obj = objTmpl->NewInstance(context).ToLocalChecked();
+                obj->SetPrototype(context, proto).Check();
+                return handleScope.Escape(obj);
+            }
+        }
+    }
+    KUN_LOG_ERR("Could not create object from '{}'", name);
+    return Local<Object>();
+}
+
+Local<Object> newInstance(
+    Local<Context> context,
+    const BString& name,
+    const std::vector<Local<Value>>& args
+) {
+    auto isolate = context->GetIsolate();
+    EscapableHandleScope handleScope(isolate);
+    BString className;
+    Local<Object> recv;
+    if (findClassNameAndRecv(context, name, className, recv)) {
+        Local<Function> constructor;
+        if (fromObject(context, recv, className, constructor)) {
+            int argc = static_cast<int>(args.size());
+            auto argv = const_cast<Local<Value>*>(args.data());
+            Local<Object> obj;
+            if (constructor->NewInstance(context, argc, argv).ToLocal(&obj)) {
+                return handleScope.Escape(obj);
+            }
+        }
+    }
+    KUN_LOG_ERR("Could not new instance from '{}'", name);
+    return Local<Object>();
 }
 
 }

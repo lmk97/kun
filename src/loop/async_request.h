@@ -64,6 +64,10 @@ public:
             uintptr_t value = 0;
             memcpy(&value, data + (index << 3), sizeof(value));
             return value != 0 ? reinterpret_cast<T>(value) : nullptr;
+        } else if constexpr (kun::is_bool<T>) {
+            int value{};
+            memcpy(&value, data + (index << 3), sizeof(value));
+            return value == 0 ? false : true;
         } else {
             T value{};
             memcpy(&value, data + (index << 3), sizeof(value));
@@ -82,6 +86,9 @@ public:
             if (t != nullptr) {
                 value = reinterpret_cast<uintptr_t>(t);
             }
+            memcpy(data + (index << 3), &value, sizeof(value));
+        } else if constexpr (kun::is_bool<T>) {
+            int value = t ? 1 : 0;
             memcpy(data + (index << 3), &value, sizeof(value));
         } else {
             memcpy(data + (index << 3), &t, sizeof(t));
@@ -134,7 +141,7 @@ public:
         auto resolver = req.getResolver(isolate);
         auto ret = req.get<T>(0);
         if (ret != -1) {
-            auto num = v8::Number::New(isolate, static_cast<double>(ret));
+            auto num = v8::Number::New(isolate, ret);
             resolver->Resolve(context, num).Check();
         } else {
             auto errCode = req.get<int>(1);

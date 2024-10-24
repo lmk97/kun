@@ -352,7 +352,7 @@ function createMakefile(config) {
                 libs += ' ' + libPath;
             }
         }
-        cxxflags += ' -std=c++17 -march=native -mtune=native';
+        cxxflags += ' -std=c++17 -m64 -march=native -mtune=native';
         cxxflags += ' -Wpedantic -Wall -Wextra';
         cxxflags += ' -Wno-unused-parameter -Wno-template-id-cdtor';
         cxxflags += ' -DV8_COMPRESS_POINTERS';
@@ -415,17 +415,17 @@ const config = {
         v8: {
             url: 'https://github.com/lmk97/build-v8',
             version: '12.4.254.19',
-            libs: [ "v8" ]
+            libs: [ 'v8' ]
         },
         openssl: {
             url: 'https://github.com/lmk97/build-openssl',
             version: '3.3.1',
-            libs: [ "ssl", "crypto" ]
+            libs: [ 'ssl', 'crypto' ]
         },
         zlib: {
             url: 'https://github.com/lmk97/build-zlib',
             version: '1.3.1',
-            libs: [ "zlib" ]
+            libs: [ 'zlib' ]
         }
     },
     target: 'kun',

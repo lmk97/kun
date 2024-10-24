@@ -36,7 +36,7 @@ Result<BString> getHomeDir() {
     if (size == -1) {
         capacity = PATH_MAX;
     } else {
-        capacity = static_cast<size_t>(size);
+        capacity = size;
     }
     auto buf = new char[capacity];
     ON_SCOPE_EXIT {

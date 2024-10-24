@@ -9,6 +9,7 @@ namespace kun {
 namespace web {
 
 class Console;
+class Event;
 
 }
 
@@ -76,12 +77,14 @@ private:
     }
 
     enum {
-        CONSOLE = 0
+        CONSOLE = 0,
+        EVENT
     };
 
     template<typename U>
     static constexpr auto getType = InternalField<U>::template from<
-        TypeValue<web::Console, CONSOLE>
+        TypeValue<web::Console, CONSOLE>,
+        TypeValue<web::Event, EVENT>
     >;
 };
 

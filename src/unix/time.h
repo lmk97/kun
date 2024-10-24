@@ -15,6 +15,11 @@ namespace KUN_SYS {
 
 inline Result<struct timespec> nanosecond() {
     struct timespec ts;
+    #ifdef KUN_PLATFORM_LINUX
+    if (::clock_gettime(CLOCK_MONOTONIC_COARSE, &ts) == 0) {
+        return ts;
+    }
+    #endif
     if (::clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
         return ts;
     }

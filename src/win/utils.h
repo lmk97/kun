@@ -36,7 +36,7 @@ inline Result<WString> toWString(const BString& str) {
         return SysErr(errCode);
     }
     WString result;
-    result.reserve(static_cast<size_t>(capacity));
+    result.reserve(capacity);
     int nchars = ::MultiByteToWideChar(
         CP_UTF8,
         0,
@@ -49,7 +49,7 @@ inline Result<WString> toWString(const BString& str) {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    result.resize(static_cast<size_t>(nchars));
+    result.resize(nchars);
     return result;
 }
 
@@ -72,7 +72,7 @@ inline Result<BString> toBString(const wchar_t* s, size_t len) {
         return SysErr(errCode);
     }
     BString result;
-    result.reserve(static_cast<size_t>(capacity));
+    result.reserve(capacity);
     int nbytes = ::WideCharToMultiByte(
         CP_UTF8,
         0,
@@ -87,7 +87,7 @@ inline Result<BString> toBString(const wchar_t* s, size_t len) {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    result.resize(static_cast<size_t>(nbytes));
+    result.resize(nbytes);
     return result;
 }
 

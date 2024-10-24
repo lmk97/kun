@@ -43,7 +43,7 @@ Result<BString> readFile(const BString& path) {
     if (nbytes <= 0) {
         return result;
     }
-    result.reserve(static_cast<size_t>(nbytes));
+    result.reserve(nbytes);
     char* begin = result.data();
     auto end = begin + nbytes;
     auto p = begin;
@@ -59,7 +59,7 @@ Result<BString> readFile(const BString& path) {
         }
         break;
     }
-    result.resize(static_cast<size_t>(nbytes));
+    result.resize(nbytes);
     return result;
 }
 

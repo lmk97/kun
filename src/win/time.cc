@@ -33,10 +33,9 @@ Result<struct timespec> nanosecond() {
     LARGE_INTEGER value;
     if (::QueryPerformanceCounter(&value) != 0) {
         auto ticks = static_cast<uint64_t>(value.QuadPart);
-        auto t = ticks * 10000000 / frequency;
-        auto s = t / 10000000;
-        auto d = t - s * 10000000;
-        auto ns = d * 100;
+        auto us = ticks * 1000000 / frequency;
+        auto s = us / 1000000;
+        auto ns = (us - s * 1000000) * 1000;
         struct timespec ts;
         ts.tv_sec = static_cast<time_t>(s);
         ts.tv_nsec = static_cast<long>(ns);

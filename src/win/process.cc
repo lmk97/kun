@@ -32,10 +32,10 @@ inline Result<BString> getEnvVar(const wchar_t (&s)[N]) {
     auto len = ::GetEnvironmentVariable(s, nullptr, 0);
     if (len != 0) {
         WString result;
-        result.reserve(static_cast<size_t>(len));
+        result.reserve(len);
         auto nchars = ::GetEnvironmentVariable(s, result.data(), len);
         if (nchars != 0) {
-            result.resize(static_cast<size_t>(nchars));
+            result.resize(nchars);
             return toBString(result);
         }
     }
@@ -61,7 +61,7 @@ Result<BString> getCwd() {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    return toBString(buf, static_cast<size_t>(nchars));
+    return toBString(buf, nchars);
 }
 
 Result<BString> getHomeDir() {
@@ -86,12 +86,12 @@ Result<BString> getHomeDir() {
         return SysErr::err("home dir not found");
     }
     WString result;
-    result.reserve(static_cast<size_t>(len));
+    result.reserve(len);
     if (::GetUserProfileDirectoryW(token, result.data(), &len) == 0) {
         auto errCode = convertError(::GetLastError());
         return SysErr(errCode);
     }
-    result.resize(static_cast<size_t>(len));
+    result.resize(len);
     return toBString(result);
 }
 

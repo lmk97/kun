@@ -539,20 +539,12 @@ bool EsModule::loadDeps(const BString& path) {
     auto isolate = env->getIsolate();
     HandleScope handleScope(isolate);
     auto context = env->getContext();
-    TryCatch tryCatch(isolate);
     Local<Value> value;
     if (
         !JSON::Parse(context, toV8String(isolate, content)).ToLocal(&value) ||
         value->IsNull() ||
         !value->IsObject()
     ) {
-        if (tryCatch.HasCaught()) {
-            auto errStr = formatJsonError(context, tryCatch.Exception(), path);
-            throwSyntaxError(isolate, errStr);
-        } else {
-            auto errStr = BString::format("Malformed JSON '{}'", path);
-            throwSyntaxError(isolate, errStr);
-        }
         return false;
     }
     auto rootObj = value.As<Object>();
@@ -562,8 +554,6 @@ bool EsModule::loadDeps(const BString& path) {
     }
     Local<Array> names;
     if (!depsObj->GetOwnPropertyNames(context).ToLocal(&names)) {
-        auto errStr = BString::format("Malformed JSON '{}'", path);
-        throwSyntaxError(isolate, errStr);
         return false;
     }
     auto depsDir = env->getDepsDir();
@@ -575,22 +565,18 @@ bool EsModule::loadDeps(const BString& path) {
         }
         Local<Object> obj;
         if (!fromObject(context, depsObj, name, obj)) {
-            eprintln("WARN: deps['{}'] is not an object", name);
             continue;
         }
         BString version;
         if (!fromObject(context, obj, "version", version)) {
-            eprintln("WARN: deps['{}'].version is not found", name);
             continue;
         }
         BString url;
         if (!fromObject(context, obj, "url", url)) {
-            eprintln("WARN: deps['{}'].url is not found", name);
             continue;
         }
         auto begin = url.find("//");
         if (begin == BString::END || begin + 2 == url.length()) {
-            eprintln("WARN: deps['{}'].url is malformed", name);
             continue;
         }
         auto end = url.find("/", begin + 2);
@@ -640,7 +626,7 @@ Result<BString> EsModule::findDepsPath(const BString& specifier) const {
     }
     auto path = joinPath(iter->second, suffix);
     if (!pathExists(path)) {
-        return SysErr::err("Dependency not exist");
+        return SysErr::err("Dependency not exists");
     }
     return path;
 }

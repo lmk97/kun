@@ -107,7 +107,7 @@ BString escape(const BString& str) {
             result.append(s, 2);
         } else {
             bool escapable = false;
-            auto u = static_cast<unsigned char>(c);
+            unsigned char u = c;
             if ((u >> 2) == 0x30 && p < end) {
                 u = ((u & 0x03) << 6) | (*p & 0x3f);
                 if (u >= 128 && u <= 160) {
@@ -230,11 +230,12 @@ BString formatAccessor(Local<Context> context, Local<Object> obj) {
     result += "\x1b[0;36m";
     result += "[Function: ";
     bool hasGetter = false;
-    if (inObject(context, obj, "get")) {
+    Local<Function> func;
+    if (fromObject(context, obj, "get", func)) {
         result += "Getter";
         hasGetter = true;
     }
-    if (inObject(context, obj, "set")) {
+    if (fromObject(context, obj, "set", func)) {
         if (hasGetter) {
             result += "/";
         }
@@ -267,7 +268,7 @@ BString formatBigInt(Local<Context> context, T t) {
         suffix = "]";
     }
     auto isolate = context->GetIsolate();
-    auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+    auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + 11 + len);
     result += "\x1b[0;33m";
     result += prefix;
@@ -303,7 +304,7 @@ BString formatBoolean(Local<Context> context, T t) {
 BString formatDate(Local<Context> context, Local<Date> date) {
     auto isolate = context->GetIsolate();
     auto isoStr = date->ToISOString();
-    auto len = static_cast<size_t>(isoStr->Utf8Length(isolate));
+    auto len = isoStr->Utf8Length(isolate);
     BString result;
     result.reserve(11 + len);
     result += "\x1b[0;35m";
@@ -319,7 +320,7 @@ BString formatFunction(Local<Context> context, Local<Function> func) {
     Local<String> v8Str;
     size_t len = 0;
     if (func->GetName()->ToString(context).ToLocal(&v8Str)) {
-        len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+        len = v8Str->Utf8Length(isolate);
     }
     BString result;
     result.reserve(11 + 26 + (len == 0 ? 11 : len));
@@ -381,7 +382,7 @@ BString formatNumber(Local<Context> context, T t) {
         return result;
     }
     auto isolate = context->GetIsolate();
-    auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+    auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + 10 + len);
     BString prefix;
     BString suffix;
@@ -428,7 +429,7 @@ BString formatRegExp(Local<Context> context, Local<RegExp> regExp) {
         return result;
     }
     auto isolate = context->GetIsolate();
-    auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+    auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + len);
     result += "\x1b[0;31m";
     auto buf = result.data() + result.length();
@@ -448,7 +449,7 @@ BString formatString(Local<Context> context, T t) {
     BString color = "\x1b[0;32m";
     if constexpr (std::is_same_v<T, Local<String>>) {
         auto isolate = context->GetIsolate();
-        auto len = static_cast<size_t>(t->Utf8Length(isolate));
+        auto len = t->Utf8Length(isolate);
         result.reserve(11 + len);
         result += color;
         auto buf = result.data() + result.length();
@@ -1096,7 +1097,7 @@ size_t findSpecifier(const BString& fmt, size_t offset) {
             c == 'f' || c == 'o' || c == 'O' ||
             c == 'c' || c == '%'
         ) {
-            return static_cast<size_t>(p - begin);
+            return p - begin;
         }
     }
     return BString::END;
@@ -1113,7 +1114,7 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
     if (end > begin + len) {
         end = begin + len;
     }
-    strs.reserve(static_cast<size_t>(end - begin));
+    strs.reserve(end - begin);
     auto context = isolate->GetCurrentContext();
     auto console = Console::from(context);
     if (console == nullptr) {

@@ -1,12 +1,22 @@
 #ifndef KUN_UTIL_V8_UTILS_H
 #define KUN_UTIL_V8_UTILS_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "v8.h"
 #include "util/bstring.h"
 
-namespace kun::util {
+namespace kun {
+
+struct AccessorDescriptor {
+    v8::FunctionCallback get{nullptr};
+    v8::FunctionCallback set{nullptr};
+    bool configurable{true};
+    bool enumerable{true};
+};
+
+namespace util {
 
 BString toBString(v8::Local<v8::Context> context, v8::Local<v8::Value> value);
 
@@ -16,7 +26,36 @@ BString formatStackTrace(v8::Local<v8::Context> context, v8::Local<v8::StackTrac
 
 BString formatException(v8::Local<v8::Context> context, v8::Local<v8::Value> exception);
 
-bool instanceOf(v8::Local<v8::Context> context, v8::Local<v8::Value> value, const BString& name);
+bool instanceOf(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Value> value,
+    const BString& name
+);
+
+void defineAccessor(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Object> obj,
+    const BString& name,
+    const AccessorDescriptor& desc
+);
+
+void inherit(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Function> child,
+    const BString& parentName
+);
+
+v8::Local<v8::Object> createObject(
+    v8::Local<v8::Context> context,
+    const BString& name,
+    int fieldCount
+);
+
+v8::Local<v8::Object> newInstance(
+    v8::Local<v8::Context> context,
+    const BString& name,
+    const std::vector<v8::Local<v8::Value>>& args
+);
 
 inline v8::Local<v8::String> toV8String(v8::Isolate* isolate, const BString& str) {
     return v8::String::NewFromUtf8(
@@ -150,10 +189,6 @@ inline bool fromObject(
         if (!obj->Get(context, v8Str).ToLocal(&value)) {
             return false;
         }
-    } else if constexpr (std::is_same_v<K, int>) {
-        if (!obj->Get(context, static_cast<uint32_t>(t)).ToLocal(&value)) {
-            return false;
-        }
     } else {
         if (!obj->Get(context, t).ToLocal(&value)) {
             return false;
@@ -277,7 +312,7 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
         if (value->IsString()) {
             auto isolate = obj->GetIsolate();
             auto v8Str = value.As<v8::String>();
-            auto len = static_cast<size_t>(v8Str->Utf8Length(isolate));
+            auto len = v8Str->Utf8Length(isolate);
             t.resize(0);
             t.reserve(len);
             v8Str->WriteUtf8(isolate, t.data());
@@ -299,6 +334,19 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
         throwTypeError(obj->GetIsolate(), errStr);
     }
     return success;
+}
+
+inline v8::Local<v8::Object> getPrototypeOf(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Function> func
+) {
+    v8::Local<v8::Object> obj;
+    if (fromObject(context, func, "prototype", obj)) {
+        return obj;
+    }
+    return v8::Local<v8::Object>();
+}
+
 }
 
 }

@@ -55,7 +55,7 @@ Result<BString> readFile(const BString& path) {
     if (len == 0) {
         return result;
     }
-    result.reserve(static_cast<size_t>(len));
+    result.reserve(len);
     DWORD nbytes = 0;
     if (::ReadFile(handle, result.data(), len, &nbytes, nullptr) == 0) {
         auto errCode = convertError(::GetLastError());
@@ -64,7 +64,7 @@ Result<BString> readFile(const BString& path) {
     if (nbytes < len) {
         return SysErr(SysErr::READ_ERROR);
     }
-    result.resize(static_cast<size_t>(len));
+    result.resize(len);
     return result;
 }
 
