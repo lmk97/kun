@@ -39,7 +39,7 @@ inline Result<BString> getEnvVar(const wchar_t (&s)[N]) {
             return toBString(result);
         }
     }
-    return SysErr::err("env var not found");
+    return SysErr("env var not found");
 }
 
 }
@@ -83,7 +83,7 @@ Result<BString> getHomeDir() {
     DWORD len = 0;
     ::GetUserProfileDirectoryW(token, nullptr, &len);
     if (len == 0) {
-        return SysErr::err("home dir not found");
+        return SysErr("home dir not found");
     }
     WString result;
     result.reserve(len);

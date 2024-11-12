@@ -14,7 +14,7 @@ namespace kun {
 template<typename T>
 class ScopeGuard {
 public:
-    ScopeGuard(T&& t) : func(std::move(t)) {}
+    explicit ScopeGuard(T&& t) : func(std::move(t)) {}
 
     ~ScopeGuard() {
         func();
@@ -28,7 +28,7 @@ class ScopeGuardSyntaxSupport {
 public:
     template<typename T>
     ScopeGuard<T> operator+(T&& t) {
-        return ScopeGuard<T>(std::move(t));
+        return ScopeGuard<T>(std::forward<T>(t));
     }
 };
 

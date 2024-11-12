@@ -35,7 +35,7 @@ public:
 template<typename T, typename U>
 class MinHeap {
 public:
-    MinHeap(size_t capacity) {
+    explicit MinHeap(size_t capacity) {
         datas.reserve(capacity);
     }
 

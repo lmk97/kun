@@ -8,6 +8,7 @@
 #include "sys/io.h"
 #include "sys/time.h"
 #include "util/scope_guard.h"
+#include "util/utils.h"
 #include "util/v8_utils.h"
 
 #ifdef KUN_PLATFORM_WIN32
@@ -724,7 +725,7 @@ BString formatCollection(Local<Context> context, T t, Local<Value> root) {
     Local<Object> iterator;
     if (
         Local<Value> value;
-        func->Call(context, t, 0, {}).ToLocal(&value) &&
+        func->Call(context, t, 0, nullptr).ToLocal(&value) &&
         !value->IsNull() &&
         value->IsObject()
     ) {
@@ -745,7 +746,7 @@ BString formatCollection(Local<Context> context, T t, Local<Value> root) {
         Local<Object> iteratorResult;
         if (
             Local<Value> value;
-            next->Call(context, iterator, 0, {}).ToLocal(&value) &&
+            next->Call(context, iterator, 0, nullptr).ToLocal(&value) &&
             !value->IsNull() &&
             value->IsObject()
         ) {
@@ -844,7 +845,7 @@ BString formatIterator(Local<Context> context, Local<Object> obj, Local<Value> r
         Local<Object> iteratorResult;
         if (
             Local<Value> value;
-            next->Call(context, obj, 0, {}).ToLocal(&value) &&
+            next->Call(context, obj, 0, nullptr).ToLocal(&value) &&
             !value->IsNull() &&
             value->IsObject()
         ) {
@@ -1142,10 +1143,12 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
             auto globalThis = context->Global();
             Local<Function> parseInt;
             if (!fromObject(context, globalThis, "parseInt", parseInt)) {
+                KUN_LOG_ERR("globalThis.parseInt is not found");
                 break;
             }
             Local<Function> parseFloat;
             if (!fromObject(context, globalThis, "parseFloat", parseFloat)) {
+                KUN_LOG_ERR("globalThis.parseFloat is not found");
                 break;
             }
             size_t capacity = 0;
@@ -1154,8 +1157,9 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
             size_t prev = 0;
             size_t next = 0;
             while ((next = findSpecifier(fmt, next)) != BString::END) {
-                capacity += next - prev - 1;
-                strs.emplace_back(data + prev, next - prev - 1);
+                auto prevStr = BString::view(data + prev, next - prev - 1);
+                capacity += prevStr.length();
+                strs.emplace_back(std::move(prevStr));
                 auto c = fmt[next];
                 prev = ++next;
                 if (c == 's') {
@@ -1200,8 +1204,9 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
             }
             const auto fmtLen = fmt.length();
             if (prev < fmtLen) {
-                capacity += fmtLen - prev;
-                strs.emplace_back(data + prev, fmtLen - prev);
+                auto str = BString::view(data + prev, fmtLen - prev);
+                capacity += str.length();
+                strs.emplace_back(std::move(str));
             }
             BString str;
             str.reserve(capacity);
@@ -1285,13 +1290,14 @@ void assert(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
     const auto len = info.Length();
+    constexpr auto logLevel = LogLevel::ERROR;
     if (len <= 0 || !info[0]->BooleanValue(isolate)) {
-        print(LogLevel::ERROR, "Assertion failed");
+        print(logLevel, "Assertion failed");
         if (len <= 1) {
-            println(LogLevel::ERROR, "");
+            println(logLevel, "");
         } else {
-            print(LogLevel::ERROR, ": ");
-            println(LogLevel::ERROR, info, 1, len - 1);
+            print(logLevel, ": ");
+            println(logLevel, info, 1, len - 1);
         }
     }
 }
@@ -1308,59 +1314,55 @@ void clear(const FunctionCallbackInfo<Value>& info) {
     print(LogLevel::LOG, "\x1b[2J\x1b[0;0H");
 }
 
-void count(const FunctionCallbackInfo<Value>& info) {
-    auto isolate = info.GetIsolate();
-    HandleScope handleScope(isolate);
-    auto context = isolate->GetCurrentContext();
-    auto console = Console::from(context);
-    if (console == nullptr) {
-        return;
-    }
-    const auto len = info.Length();
-    auto& countMap = console->countMap;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
-    auto iter = countMap.find(label);
-    auto found = iter != countMap.end();
-    uint64_t num = 1;
-    if (found) {
-        num = ++iter->second;
-    }
-    println(LogLevel::LOG, "{}: {}", label, num);
-    if (!found) {
-        countMap.emplace(std::move(label), num);
-    }
-}
-
-void countReset(const FunctionCallbackInfo<Value>& info) {
-    auto isolate = info.GetIsolate();
-    HandleScope handleScope(isolate);
-    auto context = isolate->GetCurrentContext();
-    auto console = Console::from(context);
-    if (console == nullptr) {
-        return;
-    }
-    const auto len = info.Length();
-    auto& countMap = console->countMap;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
-    auto iter = countMap.find(label);
-    if (iter != countMap.end()) {
-        iter->second = 0;
-    } else {
-        println(LogLevel::LOG, "Count for '{}' does not exist", label);
-    }
-}
-
 void debug(const FunctionCallbackInfo<Value>& info) {
     println(LogLevel::LOG, info);
+}
+
+void error(const FunctionCallbackInfo<Value>& info) {
+    println(LogLevel::ERROR, info);
+}
+
+void info(const FunctionCallbackInfo<Value>& info) {
+    println(LogLevel::INFO, info);
+}
+
+void log(const FunctionCallbackInfo<Value>& info) {
+    println(LogLevel::LOG, info);
+}
+
+void table(const FunctionCallbackInfo<Value>& info) {
+    println(LogLevel::LOG, info, 0, 1);
+}
+
+void trace(const FunctionCallbackInfo<Value>& info) {
+    auto isolate = info.GetIsolate();
+    HandleScope handleScope(isolate);
+    auto context = isolate->GetCurrentContext();
+    constexpr auto logLevel = LogLevel::LOG;
+    print(logLevel, "Trace");
+    if (info.Length() <= 0) {
+        println(logLevel, "");
+    } else {
+        print(logLevel, ": ");
+        println(logLevel, info);
+    }
+    auto stackTrace = StackTrace::CurrentStackTrace(isolate, 16);
+    auto str = formatStackTrace(context, stackTrace);
+    println(logLevel, str);
+}
+
+void warn(const FunctionCallbackInfo<Value>& info) {
+    println(LogLevel::WARN, info);
 }
 
 void dir(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
     const auto len = info.Length();
+    constexpr auto logLevel = LogLevel::LOG;
     if (len <= 0) {
         auto str = formatUndefined();
-        println(LogLevel::LOG, str);
+        println(logLevel, str);
         return;
     }
     if (info[0]->IsObject()) {
@@ -1398,10 +1400,9 @@ void dir(const FunctionCallbackInfo<Value>& info) {
                 console->showHidden = value;
             }
         }
-        auto str = formatValue(context, info[0], info[0]);
-        println(LogLevel::LOG, str);
+        println(logLevel, info, 0, 1);
     } else {
-        println(LogLevel::LOG, info, 0, 1);
+        println(logLevel, info, 0, 1);
     }
 }
 
@@ -1409,8 +1410,46 @@ void dirxml(const FunctionCallbackInfo<Value>& info) {
     println(LogLevel::LOG, info);
 }
 
-void error(const FunctionCallbackInfo<Value>& info) {
-    println(LogLevel::ERROR, info);
+void count(const FunctionCallbackInfo<Value>& info) {
+    auto isolate = info.GetIsolate();
+    HandleScope handleScope(isolate);
+    auto context = isolate->GetCurrentContext();
+    auto console = Console::from(context);
+    if (console == nullptr) {
+        return;
+    }
+    const auto len = info.Length();
+    auto& countMap = console->countMap;
+    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto iter = countMap.find(label);
+    auto found = iter != countMap.end();
+    uint64_t num = 1;
+    if (found) {
+        num = ++iter->second;
+    }
+    println(LogLevel::INFO, "{}: {}", label, num);
+    if (!found) {
+        countMap.emplace(std::move(label), num);
+    }
+}
+
+void countReset(const FunctionCallbackInfo<Value>& info) {
+    auto isolate = info.GetIsolate();
+    HandleScope handleScope(isolate);
+    auto context = isolate->GetCurrentContext();
+    auto console = Console::from(context);
+    if (console == nullptr) {
+        return;
+    }
+    const auto len = info.Length();
+    auto& countMap = console->countMap;
+    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto iter = countMap.find(label);
+    if (iter != countMap.end()) {
+        iter->second = 0;
+    } else {
+        println(LogLevel::WARN, "Count for '{}' does not exist", label);
+    }
 }
 
 void group(const FunctionCallbackInfo<Value>& info) {
@@ -1450,18 +1489,6 @@ void groupEnd(const FunctionCallbackInfo<Value>& info) {
     }
 }
 
-void info(const FunctionCallbackInfo<Value>& info) {
-    println(LogLevel::INFO, info);
-}
-
-void log(const FunctionCallbackInfo<Value>& info) {
-    println(LogLevel::LOG, info);
-}
-
-void table(const FunctionCallbackInfo<Value>& info) {
-    println(LogLevel::LOG, info, 0, 1);
-}
-
 void time(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
@@ -1482,28 +1509,6 @@ void time(const FunctionCallbackInfo<Value>& info) {
     }
 }
 
-void timeEnd(const FunctionCallbackInfo<Value>& info) {
-    auto isolate = info.GetIsolate();
-    HandleScope handleScope(isolate);
-    auto context = isolate->GetCurrentContext();
-    auto console = Console::from(context);
-    if (console == nullptr) {
-        return;
-    }
-    const auto len = info.Length();
-    auto& timerTable = console->timerTable;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
-    auto iter = timerTable.find(label);
-    if (iter != timerTable.end()) {
-        auto us = microsecond().unwrap();
-        auto duration = static_cast<double>(us - iter->second) / 1000;
-        timerTable.erase(iter);
-        println(LogLevel::LOG, "{}: {} ms", label, duration);
-    } else {
-        println(LogLevel::LOG, "Timer '{}' does not exists", label);
-    }
-}
-
 void timeLog(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
@@ -1513,42 +1518,46 @@ void timeLog(const FunctionCallbackInfo<Value>& info) {
         return;
     }
     const auto len = info.Length();
+    constexpr auto logLevel = LogLevel::LOG;
     auto& timerTable = console->timerTable;
     auto label = len > 0 ? toBString(context, info[0]) : "default";
     auto iter = timerTable.find(label);
     if (iter != timerTable.end()) {
         auto us = microsecond().unwrap();
         auto duration = static_cast<double>(us - iter->second) / 1000;
-        print(LogLevel::LOG, "{}: {} ms", label, duration);
+        print(logLevel, "{}: {} ms", label, duration);
         if (len > 1) {
-            print(LogLevel::LOG, " ");
-            println(LogLevel::LOG, info, 1, len - 1);
+            print(logLevel, " ");
+            println(logLevel, info, 1, len - 1);
         } else {
-            println(LogLevel::LOG, "");
+            println(logLevel, "");
         }
     } else {
-        println(LogLevel::LOG, "Timer '{}' does not exists", label);
+        println(logLevel, "Timer '{}' does not exists", label);
     }
 }
 
-void trace(const FunctionCallbackInfo<Value>& info) {
+void timeEnd(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
     auto context = isolate->GetCurrentContext();
-    print(LogLevel::LOG, "Trace");
-    if (info.Length() <= 0) {
-        println(LogLevel::LOG, "");
-    } else {
-        print(LogLevel::LOG, ": ");
-        println(LogLevel::LOG, info);
+    auto console = Console::from(context);
+    if (console == nullptr) {
+        return;
     }
-    auto stackTrace = StackTrace::CurrentStackTrace(isolate, 16);
-    auto str = formatStackTrace(context, stackTrace);
-    println(LogLevel::LOG, str);
-}
-
-void warn(const FunctionCallbackInfo<Value>& info) {
-    println(LogLevel::WARN, info);
+    const auto len = info.Length();
+    constexpr auto logLevel = LogLevel::INFO;
+    auto& timerTable = console->timerTable;
+    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto iter = timerTable.find(label);
+    if (iter != timerTable.end()) {
+        auto us = microsecond().unwrap();
+        auto duration = static_cast<double>(us - iter->second) / 1000;
+        timerTable.erase(iter);
+        println(logLevel, "{}: {} ms", label, duration);
+    } else {
+        println(logLevel, "Timer '{}' does not exists", label);
+    }
 }
 
 }
@@ -1576,26 +1585,25 @@ void exposeConsole(Local<Context> context, ExposedScope exposedScope) {
     setToStringTag(isolate, objTmpl, exposedName);
     setFunction(isolate, objTmpl, "assert", assert);
     setFunction(isolate, objTmpl, "clear", clear);
-    setFunction(isolate, objTmpl, "count", count);
-    setFunction(isolate, objTmpl, "countReset", countReset);
     setFunction(isolate, objTmpl, "debug", debug);
-    setFunction(isolate, objTmpl, "dir", dir);
-    setFunction(isolate, objTmpl, "dirxml", dirxml);
     setFunction(isolate, objTmpl, "error", error);
-    setFunction(isolate, objTmpl, "group", group);
-    setFunction(isolate, objTmpl, "groupCollapsed", groupCollapsed);
-    setFunction(isolate, objTmpl, "groupEnd", groupEnd);
     setFunction(isolate, objTmpl, "info", info);
     setFunction(isolate, objTmpl, "log", log);
     setFunction(isolate, objTmpl, "table", table);
-    setFunction(isolate, objTmpl, "time", time);
-    setFunction(isolate, objTmpl, "timeEnd", timeEnd);
-    setFunction(isolate, objTmpl, "timeLog", timeLog);
     setFunction(isolate, objTmpl, "trace", trace);
     setFunction(isolate, objTmpl, "warn", warn);
+    setFunction(isolate, objTmpl, "dir", dir);
+    setFunction(isolate, objTmpl, "dirxml", dirxml);
+    setFunction(isolate, objTmpl, "count", count);
+    setFunction(isolate, objTmpl, "countReset", countReset);
+    setFunction(isolate, objTmpl, "group", group);
+    setFunction(isolate, objTmpl, "groupCollapsed", groupCollapsed);
+    setFunction(isolate, objTmpl, "groupEnd", groupEnd);
+    setFunction(isolate, objTmpl, "time", time);
+    setFunction(isolate, objTmpl, "timeLog", timeLog);
+    setFunction(isolate, objTmpl, "timeEnd", timeEnd);
     auto obj = objTmpl->NewInstance(context).ToLocalChecked();
-    auto console = new Console(obj);
-    console->internalField.set(obj, 0);
+    new Console(obj);
     auto globalThis = context->Global();
     globalThis->DefineOwnProperty(context, exposedName, obj, v8::DontEnum).Check();
 }

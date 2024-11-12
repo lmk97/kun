@@ -44,7 +44,7 @@ AsyncHandler::AsyncHandler(Environment* env) :
 
 AsyncHandler::~AsyncHandler() {
     if (!tryClose()) {
-        KUN_LOG_ERR("AsyncHandler::~AsyncHandler");
+        KUN_LOG_ERR("Failed to close AsyncHandler");
     }
 }
 
@@ -57,12 +57,12 @@ void AsyncHandler::onReadable() {
     #elif defined(KUN_PLATFORM_WIN32)
     auto eventLoop = env->getEventLoop();
     if (!eventLoop->removeChannel(this)) {
-        KUN_LOG_ERR("AsyncHandler::onReadable");
+        KUN_LOG_ERR("Failed to remove AsyncHandler");
     }
     fd = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd != INVALID_SOCKET) {
         if (!eventLoop->addChannel(this)) {
-            KUN_LOG_ERR("AsyncHandler::onReadable");
+            KUN_LOG_ERR("Failed to add AsyncHandler");
         }
     } else {
         auto errCode = win::convertError(::WSAGetLastError());

@@ -144,15 +144,15 @@ Result<bool> removeDir(const BString& path) {
                 }
             }
             auto nameLen = wcslen(findDataw.cFileName);
-            auto wfileName = WString::view(findDataw.cFileName, nameLen);
-            if (wfileName == L"." || wfileName == L"..") {
+            auto wfilename = WString::view(findDataw.cFileName, nameLen);
+            if (wfilename == L"." || wfilename == L"..") {
                 continue;
             }
             WString wfilePath;
             wfilePath.reserve(wdir.length() + 1 + nameLen);
             wfilePath += wdir;
             wfilePath += L"\\";
-            wfilePath += wfileName;
+            wfilePath += wfilename;
             if (findDataw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 wdirs.emplace_back(std::move(wfilePath));
             } else {

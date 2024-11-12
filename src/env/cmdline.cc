@@ -34,7 +34,7 @@ void printHelp(int optionName, const BString& optionValue);
 void printVersion(int optionName, const BString& optionValue);
 void checkValue(int optionName, const BString& optionValue);
 
-const Option OPTIONS[] = {
+Option OPTIONS[] = {
     {
         "-h", "--help", nullptr,
         "print command line options",

@@ -10,7 +10,7 @@ namespace kun {
 
 class AsyncHandler : public Channel {
 public:
-    AsyncHandler(Environment* env);
+    explicit AsyncHandler(Environment* env);
 
     ~AsyncHandler();
 

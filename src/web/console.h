@@ -15,7 +15,11 @@ namespace kun::web {
 
 class Console {
 public:
-    Console(v8::Local<v8::Object> obj) : weakObject(obj, this), internalField(this) {
+    explicit Console(v8::Local<v8::Object> obj) :
+        weakObject(obj, this),
+        internalField(this)
+    {
+        internalField.set(obj, 0);
         countMap.reserve(128);
         timerTable.reserve(128);
     }

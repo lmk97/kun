@@ -507,7 +507,7 @@ bool EsModule::execute(const BString& path) {
         if (Local<Value> value; module->Evaluate(context).ToLocal(&value)) {
             promise = value.As<Promise>();
         } else {
-            KUN_LOG_ERR("EsModule::execute");
+            KUN_LOG_ERR("Failed to evaluate module '{}'", path);
         }
         env->runMicrotask();
         auto stalled = module->GetStalledTopLevelAwaitMessages(isolate);
@@ -524,7 +524,7 @@ bool EsModule::execute(const BString& path) {
         auto errStr = formatException(context, tryCatch.Exception());
         eprintln(errStr);
     } else {
-        eprintln("ERROR: Failed to evaluate module '{}'", path);
+        eprintln("ERROR: Failed to execute module '{}'", path);
     }
     return false;
 }
@@ -606,27 +606,27 @@ Result<BString> EsModule::findModulePath(Local<Module> module) const {
     if (iter != modulePathMap.end()) {
         return BString::view(iter->second);
     }
-    return SysErr::err("Module not found");
+    return SysErr("Module not found");
 }
 
 Result<BString> EsModule::findDepsPath(const BString& specifier) const {
     auto index = specifier.find("/");
     if (index == BString::END) {
-        return SysErr::err("Malformed specifier");
+        return SysErr("Malformed specifier");
     }
     index = specifier.find("/", index + 1);
     if (index == BString::END || index + 1 == specifier.length()) {
-        return SysErr::err("Malformed specifier");
+        return SysErr("Malformed specifier");
     }
     auto name = specifier.substring(0, index);
     auto suffix = specifier.substring(index + 1);
     auto iter = depsPathMap.find(name);
     if (iter == depsPathMap.end()) {
-        return SysErr::err("Dependency not found");
+        return SysErr("Dependency not found");
     }
     auto path = joinPath(iter->second, suffix);
     if (!pathExists(path)) {
-        return SysErr::err("Dependency not exists");
+        return SysErr("Dependency not exists");
     }
     return path;
 }

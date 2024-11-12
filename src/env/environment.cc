@@ -10,8 +10,8 @@
 #include "sys/process.h"
 #include "util/scope_guard.h"
 #include "util/v8_utils.h"
-#include "web/console.h"
-#include "web/event.h"
+#include "web/timers.h"
+#include "web/web.h"
 
 KUN_V8_USINGS;
 
@@ -100,8 +100,7 @@ void Environment::run(ExposedScope exposedScope) {
             ).Check();
             this->isolate = isolate;
             this->context.Reset(isolate, context);
-            web::exposeConsole(context, exposedScope);
-            web::exposeEvent(context, exposedScope);
+            web::expose(context, exposedScope);
             EsModule esModule(this);
             EventLoop eventLoop(this);
             this->esModule = &esModule;

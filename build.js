@@ -137,43 +137,12 @@ async function fetchDeps(config) {
                     console.log(`ERROR: fetch '${downloadUrl}'`);
                 }
             }
-            if (fs.existsSync(targzPath)) {
-                const tarPath = targzPath.substring(0, targzPath.length - 3);
-                console.log(`Ungzip   '${targzPath}' to '${tarPath}'`);
-                const success = await ungzip(targzPath, tarPath);
-                if (success) {
-                    console.log(`Untar    '${tarPath}' to '${includeDir}'`);
-                    fs.mkdirSync(includeDir);
-                    const tarBuf = fs.readFileSync(tarPath);
-                    untar(tarBuf).forEach((info) => {
-                        let filePath = info.filePath;
-                        if (filePath.startsWith('./')) {
-                            filePath = filePath.substring(2);
-                        }
-                        filePath = `${includeDir}/${filePath}`;
-                        if (info.fileType === 'dir') {
-                            fs.mkdirSync(filePath, { recursive: true });
-                        } else {
-                            fs.writeFileSync(filePath, info.fileData);
-                        }
-                    });
-                } else {
-                    console.log(`ERROR: Ungzip '${targzPath}'`);
-                    fs.unlinkSync(includeDir);
-                }
-                fs.unlinkSync(tarPath);
-                console.log(`Resolved '${includeDir}'`);
-            }
-        } else {
-            console.log(`Exists   '${includeDir}'`);
         }
-        const { libPrefix, libSuffix } = config;
         const { arch, sub, vendor, sys, env } = config.triple;
         const triple = `${arch}${sub}-${vendor}-${sys}-${env}`;
         for (let i = 0; i < libs.length; i++) {
             const filename = `${libs[i]}-lib-${triple}.gz`;
             const gzPath = `${config.libDir}/${filename}`;
-            const libPath = `${config.libDir}/${libPrefix}${libs[i]}${libSuffix}`;
             if (!fs.existsSync(gzPath)) {
                 const downloadUrl = `${urlPrefix}/${filename}`;
                 console.log(`Download '${downloadUrl}'`);
@@ -184,11 +153,59 @@ async function fetchDeps(config) {
                 } else {
                     console.log(`ERROR: fetch '${downloadUrl}'`);
                 }
-            } else {
-                console.log(`Exists   '${gzPath}'`);
             }
+        }
+    }
+}
+
+async function ungzipDeps(config) {
+    for (const name in config.deps) {
+        const includeDir = `${config.includeDir}/${name}`;
+        if (!fs.existsSync(includeDir)) {
+            const filename = `${name}-include.tar.gz`;
+            const targzPath = `${config.includeDir}/${filename}`;
+            if (!fs.existsSync(targzPath)) {
+                console.log(`ERROR: ${targzPath} not found`);
+                break;
+            }
+            const tarPath = targzPath.substring(0, targzPath.length - 3);
+            console.log(`Ungzip   '${targzPath}' => '${tarPath}'`);
+            const success = await ungzip(targzPath, tarPath);
+            if (success) {
+                console.log(`Untar    '${tarPath}' => '${includeDir}'`);
+                fs.mkdirSync(includeDir);
+                const tarBuf = fs.readFileSync(tarPath);
+                untar(tarBuf).forEach((info) => {
+                    let filePath = info.filePath;
+                    if (filePath.startsWith('./')) {
+                        filePath = filePath.substring(2);
+                    }
+                    filePath = `${includeDir}/${filePath}`;
+                    if (info.fileType === 'dir') {
+                        fs.mkdirSync(filePath, { recursive: true });
+                    } else {
+                        fs.writeFileSync(filePath, info.fileData);
+                    }
+                });
+                console.log(`Resolved '${includeDir}'`);
+            } else {
+                fs.unlinkSync(includeDir);
+                console.log(`ERROR: Ungzip '${targzPath}'`);
+            }
+            fs.unlinkSync(tarPath);
+        } else {
+            console.log(`Exists   '${includeDir}'`);
+        }
+        const libs = config.deps[name].libs;
+        const { libPrefix, libSuffix } = config;
+        const { arch, sub, vendor, sys, env } = config.triple;
+        const triple = `${arch}${sub}-${vendor}-${sys}-${env}`;
+        for (let i = 0; i < libs.length; i++) {
+            const filename = `${libs[i]}-lib-${triple}.gz`;
+            const gzPath = `${config.libDir}/${filename}`;
+            const libPath = `${config.libDir}/${libPrefix}${libs[i]}${libSuffix}`;
             if (fs.existsSync(gzPath)) {
-                console.log(`Ungzip   '${gzPath}' to '${libPath}'`);
+                console.log(`Ungzip   '${gzPath}' => '${libPath}'`);
                 const success = await ungzip(gzPath, libPath);
                 if (success) {
                     console.log(`Resolved '${libPath}'`);
@@ -249,14 +266,6 @@ function findHeaderPaths(sourcePath) {
     return result;
 }
 
-function convertPath(path, platform) {
-    if (platform === 'win32') {
-        return path.replace(/\//g, '\\');
-    } else {
-        return path;
-    }
-}
-
 function parseProject(config) {
     const { platform, srcDir, distDir } = config;
     const objSuffix = platform === 'win32' ? '.obj' : '.o';
@@ -269,7 +278,7 @@ function parseProject(config) {
         for (const headerPath of sourceHeaderPaths) {
             const path = `${srcDir}/${headerPath}`;
             if (fs.existsSync(path)) {
-                headerPaths.push(convertPath(path, platform));
+                headerPaths.push(path);
             }
         }
         const suffix = sourcePath.substring(srcDir.length);
@@ -285,111 +294,114 @@ function parseProject(config) {
                 fs.mkdirSync(objDir, { recursive: true });
             }
         }
-        result[convertPath(sourcePath, platform)] = {
+        result[sourcePath] = {
             headerPaths: headerPaths,
-            objectPath: convertPath(objPath, platform)
+            objectPath: objPath
         };
     }
     return result;
 }
 
-function createMakefile(config) {
+function toWinPath(path) {
+    return path.replace(/\//g, '\\');
+}
+
+function generateWinMakefile(config) {
     const projectObject = parseProject(config);
-    let targetSuffix = '';
-    let targetPath = '';
+    const targetPath = toWinPath(`${config.distDir}/${config.target}.exe`);
     let objectPaths = '';
     let libs = '';
     let includes = '';
     let cxxflags = '';
     let ldflags = '';
-    if (config.platform === 'win32') {
-        targetSuffix = '.exe';
+    for (const key in projectObject) {
+        const objPath = toWinPath(projectObject[key].objectPath);
+        objectPaths += objPath + ' ';
     }
-    targetPath = convertPath(
-        `${config.distDir}/${config.target}${targetSuffix}`,
-        config.platform
-    );
-    for (const sourcePath in projectObject) {
-        objectPaths += projectObject[sourcePath].objectPath + ' ';
+    libs += 'shlwapi.lib ws2_32.lib userenv.lib ';
+    libs += 'winmm.lib dbghelp.lib advapi32.lib ';
+    includes += `/I ${toWinPath(config.srcDir)} `;
+    const { libDir, libPrefix, libSuffix } = config;
+    for (const name in config.deps) {
+        const includeDir = `${config.includeDir}/${name}`;
+        includes += `/I ${toWinPath(includeDir)} `;
+        for (const libName of config.deps[name].libs) {
+            const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
+            libs += toWinPath(libPath) + ' ';
+        }
     }
-    if (config.platform === 'win32') {
-        libs += ' shlwapi.lib ws2_32.lib userenv.lib';
-        libs += ' winmm.lib dbghelp.lib advapi32.lib';
-        includes += ' /I' + convertPath(config.srcDir, config.platform);
-        const { libDir, libPrefix, libSuffix } = config;
-        for (const name in config.deps) {
-            const includeDir = `${config.includeDir}/${name}`;
-            includes += ' /I' + convertPath(includeDir, config.platform);
-            for (let i = 0; i < config.deps[name].libs.length; i++) {
-                const libName = config.deps[name].libs[i];
-                const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
-                libs += ' ' + convertPath(libPath, config.platform);
-            }
-        }
-        cxxflags += ' /std:c++17 /utf-8 /EHsc /nologo';
-        cxxflags += ' /Zc:__cplusplus /Zc:preprocessor';
-        cxxflags += ' /wd4100 /wd4127 /wd4458';
-        cxxflags += ' /DUNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN';
-        cxxflags += ' /DV8_COMPRESS_POINTERS';
-        if (config.buildType === 'release') {
-            cxxflags += ' /O2';
-        } else {
-            cxxflags += ' /W4 /Od /Z7';
-        }
-        if (config.buildType === 'release') {
-            ldflags += ' /RELEASE';
-        } else {
-            ldflags += ' /DEBUG';
-        }
+    cxxflags += '/std:c++17 /utf-8 /EHsc /nologo ';
+    cxxflags += '/Zc:__cplusplus /Zc:preprocessor ';
+    cxxflags += '/wd4100 /wd4127 /wd4458 ';
+    cxxflags += '/DUNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN ';
+    cxxflags += '/DV8_COMPRESS_POINTERS ';
+    if (config.buildType === 'release') {
+        cxxflags += '/O2 /RELEASE ';
     } else {
-        includes += ` -I ${config.srcDir}`;
-        const { libDir, libPrefix, libSuffix } = config;
-        for (const name in config.deps) {
-            includes += ` -I ${config.includeDir}/${name}`;
-            for (let i = 0; i < config.deps[name].libs.length; i++) {
-                const libName = config.deps[name].libs[i];
-                const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
-                libs += ' ' + libPath;
-            }
-        }
-        cxxflags += ' -std=c++17 -m64 -march=native -mtune=native';
-        cxxflags += ' -Wpedantic -Wall -Wextra';
-        cxxflags += ' -Wno-unused-parameter -Wno-template-id-cdtor';
-        cxxflags += ' -DV8_COMPRESS_POINTERS';
-        if (config.buildType === 'release') {
-            cxxflags += ' -O3';
-        } else {
-            cxxflags += ' -g -no-pie -Og';
-        }
-        ldflags += ' -rdynamic -flto';
+        cxxflags += '/W4 /Od /Z7 /DEBUG ';
     }
     let content = '';
     content += `${targetPath}: ${objectPaths}\n`;
-    if (config.platform === 'win32') {
-        content += `\tcl.exe /nologo ${libs} ${objectPaths}`;
-        content += ` /Fe${targetPath} /link ${ldflags}\n`;
-    } else {
-        content += `\tg++ ${ldflags}`;
-        content += ` -Wl,--start-group ${libs} ${objectPaths} -Wl,--end-group`;
-        content += ` -o ${targetPath}\n`;
-        if (config.buildType === 'release') {
-            content += `\tstrip --strip-debug --strip-unneeded ${targetPath}\n`;
+    content += `\tcl.exe /nologo ${libs} ${objectPaths} /Fe${targetPath} /link ${ldflags}\n`;
+    for (const key in projectObject) {
+        const sourcePath = toWinPath(key);
+        const objectPath = toWinPath(projectObject[key].objectPath);
+        let headerPaths = '';
+        for (const headerPath of projectObject[key].headerPaths) {
+            headerPaths += toWinPath(headerPath) + ' ';
         }
+        content += `\n${objectPath}: ${sourcePath} ${headerPaths}\n`;
+        content += `\tcl.exe ${cxxflags} ${includes} /c /Tp${sourcePath} /Fo${objectPath}\n`;
+    }
+    fs.writeFileSync('./Makefile', content);
+    console.log('Generate Makefile successfully!');
+}
+
+function generateUnixMakefile(config) {
+    const projectObject = parseProject(config);
+    const targetPath = `${config.distDir}/${config.target}`;
+    let objectPaths = '';
+    let libs = '';
+    let includes = '';
+    let cxxflags = '';
+    let ldflags = '';
+    for (const key in projectObject) {
+        objectPaths += projectObject[key].objectPath + ' ';
+    }
+    includes += `-I ${config.srcDir} `;
+    const { libDir, libPrefix, libSuffix } = config;
+    for (const name in config.deps) {
+        includes += `-I ${config.includeDir}/${name} `;
+        for (const libName of config.deps[name].libs) {
+            const libPath = `${libDir}/${libPrefix}${libName}${libSuffix}`;
+            libs += libPath + ' ';
+        }
+    }
+    cxxflags += '-std=c++17 -m64 -march=native -mtune=native ';
+    cxxflags += '-Wpedantic -Wall -Wextra ';
+    cxxflags += '-Wno-unused-parameter -Wno-template-id-cdtor ';
+    cxxflags += '-DV8_COMPRESS_POINTERS ';
+    if (config.buildType === 'release') {
+        cxxflags += '-O3 ';
+    } else {
+        cxxflags += '-g -no-pie -Og ';
+    }
+    ldflags += '-rdynamic -flto ';
+    let content = '';
+    content += `${targetPath}: ${objectPaths}\n`;
+    content += `\tg++ ${ldflags} -Wl,--start-group ${libs} ${objectPaths} -Wl,--end-group `;
+    content += `-o ${targetPath}\n`;
+    if (config.buildType === 'release') {
+        content += `\tstrip --strip-debug --strip-unneeded ${targetPath}\n`;
     }
     for (const sourcePath in projectObject) {
         const objectPath = projectObject[sourcePath].objectPath;
         let headerPaths = '';
-        for (const path of projectObject[sourcePath].headerPaths) {
-            headerPaths += path + ' ';
+        for (const headerPath of projectObject[sourcePath].headerPaths) {
+            headerPaths += headerPath + ' ';
         }
         content += `\n${objectPath}: ${sourcePath} ${headerPaths}\n`;
-        if (config.platform === 'win32') {
-            content += `\tcl.exe ${cxxflags} ${includes}`;
-            content += ` /c /Tp${sourcePath} /Fo${objectPath}\n`;
-        } else {
-            content += `\tg++ ${cxxflags} ${includes} `;
-            content += ` -c ${sourcePath} -o ${objectPath}\n`;
-        }
+        content += `\tg++ ${cxxflags} ${includes} -c ${sourcePath} -o ${objectPath}\n`;
     }
     fs.writeFileSync('./Makefile', content);
     console.log('Generate Makefile successfully!');
@@ -498,7 +510,13 @@ if (buildType === 'clean') {
 
 await fetchDeps(config);
 
-createMakefile(config);
+await ungzipDeps(config);
+
+if (config.platform === 'win32') {
+    generateWinMakefile(config);
+} else {
+    generateUnixMakefile(config);
+}
 
 buildProject(config.platform);
 

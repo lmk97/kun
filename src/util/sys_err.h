@@ -7,16 +7,16 @@ namespace kun {
 
 class SysErr {
 public:
-    SysErr(int code);
+    explicit SysErr(int code);
 
     template<size_t N>
-    SysErr(int code, const char (&s)[N]) {
-        this->code = code;
+    explicit SysErr(const char (&s)[N]) : code(RUNTIME_ERROR) {
+        this->name = "RUNTIME_ERROR";
         this->phrase = s;
     }
 
     operator bool() const {
-        return SysErr::isSuccess(code);
+        return code == 0;
     }
 
     bool operator==(int code) const {
@@ -35,30 +35,21 @@ public:
         return this->code != sysErr.code;
     }
 
-    static bool isSuccess(int code) {
-        return code == 0 || code == SUCCESS;
-    }
-
-    template<size_t N>
-    static SysErr err(const char (&s)[N]) {
-        return SysErr(SysErr::RUNTIME_ERROR, s);
-    }
-
-    int code;
+    const int code;
+    const char* name;
     const char* phrase;
 
     enum {
-        SUCCESS = 10000,
+        RUNTIME_ERROR = 10000,
         UNKNOWN_ERROR,
-        RUNTIME_ERROR,
         READ_ERROR,
         WRITE_ERROR,
+        NOT_DIRECTORY,
+        NOT_REGULAR_FILE,
         INVALID_ARGUMENT,
         INVALID_CHARSET,
         INVALID_SOCKET_TYPE,
-        INVALID_SOCKET_VERSION,
-        NOT_DIRECTORY,
-        NOT_REGULAR_FILE
+        INVALID_SOCKET_VERSION
     };
 };
 

@@ -16,9 +16,10 @@ namespace kun::util {
 template<typename T, typename... TS>
 inline void logErr(T&& t, TS&&... args) {
     if constexpr (std::is_same_v<std::decay_t<T>, int>) {
+        auto [code, name, phrase] = SysErr(t);
         sys::eprintln(
-            "\x1b[0;31mERROR\x1b[0m: (\x1b[0;33m{}\x1b[0m) {}",
-            t, SysErr(t).phrase
+            "\x1b[0;31mERROR\x1b[0m: {}(\x1b[0;33m{}\x1b[0m) {}",
+            name, code, phrase
         );
     } else {
         auto str = BString::format(t, std::forward<TS>(args)...);

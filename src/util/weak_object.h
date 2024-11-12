@@ -10,8 +10,6 @@ namespace kun {
 template<typename T>
 class WeakObject {
 public:
-    using Callback = void (*)(T* t);
-
     WeakObject(const WeakObject&) = delete;
 
     WeakObject& operator=(const WeakObject&) = delete;
@@ -30,11 +28,7 @@ public:
 
     void finalize() {
         object.Reset();
-        if (callback == nullptr) {
-            delete data;
-        } else {
-            callback(data);
-        }
+        delete data;
     }
 
     void ref() {
@@ -49,10 +43,6 @@ public:
         }
     }
 
-    void setCallback(Callback callback) {
-        this->callback = callback;
-    }
-
     v8::Local<v8::Object> get() const {
         return object.Get(isolate);
     }
@@ -60,8 +50,7 @@ public:
 private:
     v8::Isolate* isolate;
     v8::Global<v8::Object> object;
-    T* data;
-    Callback callback{nullptr};
+    T* const data;
     uint32_t refCount{0};
 
     void setWeak() {

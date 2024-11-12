@@ -1,7 +1,10 @@
 #ifndef KUN_ENV_ENVIRONMENT_H
 #define KUN_ENV_ENVIRONMENT_H
 
+#include <stdint.h>
+
 #include <vector>
+#include <unordered_map>
 
 #include "v8.h"
 #include "util/bstring.h"
@@ -12,6 +15,7 @@ namespace kun {
 class Cmdline;
 class EsModule;
 class EventLoop;
+class WebTimer;
 
 class Environment {
 public:
@@ -23,7 +27,7 @@ public:
 
     Environment& operator=(Environment&&) = delete;
 
-    Environment(Cmdline* cmdline);
+    explicit Environment(Cmdline* cmdline);
 
     ~Environment() = default;
 
@@ -63,6 +67,36 @@ public:
         }
     }
 
+    uint32_t addWebTimer(WebTimer* webTimer) {
+        uint32_t id;
+        while (true) {
+            if (webTimerId == 0) {
+                ++webTimerId;
+            }
+            id = webTimerId++;
+            auto pair = webTimerMap.emplace(id, webTimer);
+            if (pair.second) {
+                break;
+            }
+        }
+        return id;
+    }
+
+    WebTimer* removeWebTimer(uint32_t id) {
+        auto iter = webTimerMap.find(id);
+        if (iter != webTimerMap.end()) {
+            auto webTimer = iter->second;
+            webTimerMap.erase(iter);
+            return webTimer;
+        }
+        return nullptr;
+    }
+
+    WebTimer* findWebTimer(uint32_t id) const {
+        auto iter = webTimerMap.find(id);
+        return iter != webTimerMap.end() ? iter->second : nullptr;
+    }
+
     BString getKunDir() const {
         return BString::view(kunDir);
     }
@@ -82,6 +116,8 @@ private:
     v8::Isolate* isolate;
     v8::Global<v8::Context> context;
     std::vector<v8::Global<v8::Value>> unhandledRejections;
+    uint32_t webTimerId{1};
+    std::unordered_map<uint32_t, WebTimer*> webTimerMap;
     BString kunDir;
     BString depsDir;
 };

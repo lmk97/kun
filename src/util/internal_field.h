@@ -8,8 +8,10 @@ namespace kun {
 
 namespace web {
 
+class AbortSignal;
 class Console;
 class Event;
+class EventTarget;
 
 }
 
@@ -24,7 +26,7 @@ public:
 
     InternalField& operator=(InternalField&&) = delete;
 
-    InternalField(T* t) : data(t), type(getType<T>()) {
+    explicit InternalField(T* t) : data(t), type(getType<T>()) {
         static_assert(getType<T>() != -1);
     }
 
@@ -78,13 +80,16 @@ private:
 
     enum {
         CONSOLE = 0,
-        EVENT
+        EVENT,
+        EVENT_TARGET
     };
 
     template<typename U>
     static constexpr auto getType = InternalField<U>::template from<
+        TypeValue<web::AbortSignal, EVENT_TARGET>,
         TypeValue<web::Console, CONSOLE>,
-        TypeValue<web::Event, EVENT>
+        TypeValue<web::Event, EVENT>,
+        TypeValue<web::EventTarget, EVENT_TARGET>
     >;
 };
 

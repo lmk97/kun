@@ -10,7 +10,20 @@
 
 namespace kun::web {
 
-struct EventPath {
+class EventPath {
+public:
+    EventPath(const EventPath&) = delete;
+
+    EventPath& operator=(const EventPath&) = delete;
+
+    EventPath(EventPath&&) = default;
+
+    EventPath& operator=(EventPath&&) = default;
+
+    EventPath() = default;
+
+    ~EventPath() = default;
+
     v8::Global<v8::Object> invocationTarget;
     v8::Global<v8::Object> shadowAdjustedTarget;
     v8::Global<v8::Object> relatedTarget;
@@ -21,7 +34,11 @@ struct EventPath {
 
 class Event {
 public:
-    Event(v8::Local<v8::Object> obj) : weakObject(obj, this), internalField(this) {
+    explicit Event(v8::Local<v8::Object> obj) :
+        weakObject(obj, this),
+        internalField(this)
+    {
+        internalField.set(obj, 0);
         path.reserve(2);
     }
 
@@ -29,6 +46,7 @@ public:
     InternalField<Event> internalField;
     BString type;
     v8::Global<v8::Object> target;
+    v8::Global<v8::Object> relatedTarget;
     v8::Global<v8::Object> currentTarget;
     std::vector<EventPath> path;
     double timeStamp;

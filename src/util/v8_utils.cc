@@ -28,11 +28,11 @@ bool findClassNameAndRecv(
     while (index != BString::END) {
         prev = index + 1;
         auto key = name.substring(prev, index);
-        Local<Object> tmp;
-        if (!fromObject(context, obj, key, tmp)) {
+        Local<Object> out;
+        if (!fromObject(context, obj, key, out)) {
             return false;
         }
-        obj = tmp;
+        obj = out;
         index = name.find(".", prev);
     }
     className = name.substring(prev);
@@ -209,7 +209,7 @@ void defineAccessor(
             func->SetName(v8Str);
             get = func;
         } else {
-            KUN_LOG_ERR("defineAccessor");
+            KUN_LOG_ERR("invalid 'get' function");
             return;
         }
     } else {
@@ -224,7 +224,7 @@ void defineAccessor(
             func->SetName(v8Str);
             set = func;
         } else {
-            KUN_LOG_ERR("defineAccessor");
+            KUN_LOG_ERR("invalid 'set' function");
             return;
         }
     } else {
@@ -244,9 +244,12 @@ void inherit(Local<Context> context, Local<Function> child, const BString& paren
     if (findClassNameAndRecv(context, parentName, className, recv)) {
         Local<Function> parent;
         if (fromObject(context, recv, className, parent)) {
-            auto parentProto = getPrototypeOf(context, parent);
-            auto childProto = getPrototypeOf(context, child);
-            if (!parentProto.IsEmpty() && !childProto.IsEmpty()) {
+            Local<Object> parentProto;
+            Local<Object> childProto;
+            if (
+                getPrototypeOf(context, parent).ToLocal(&parentProto) &&
+                getPrototypeOf(context, child).ToLocal(&childProto)
+            ) {
                 childProto->SetPrototype(context, parentProto).Check();
                 return;
             }
@@ -255,52 +258,33 @@ void inherit(Local<Context> context, Local<Function> child, const BString& paren
     KUN_LOG_ERR("Could not inherit from '{}'", parentName);
 }
 
-Local<Object> createObject(Local<Context> context, const BString& name, int fieldCount) {
-    auto isolate = context->GetIsolate();
-    EscapableHandleScope handleScope(isolate);
-    BString className;
-    Local<Object> recv;
-    if (findClassNameAndRecv(context, name, className, recv)) {
-        Local<Function> constructor;
-        if (fromObject(context, recv, className, constructor)) {
-            auto proto = getPrototypeOf(context, constructor);
-            if (!proto.IsEmpty()) {
-                auto objTmpl = ObjectTemplate::New(isolate);
-                if (fieldCount > 0) {
-                    objTmpl->SetInternalFieldCount(fieldCount);
-                }
-                auto obj = objTmpl->NewInstance(context).ToLocalChecked();
-                obj->SetPrototype(context, proto).Check();
-                return handleScope.Escape(obj);
-            }
-        }
-    }
-    KUN_LOG_ERR("Could not create object from '{}'", name);
-    return Local<Object>();
-}
-
-Local<Object> newInstance(
+MaybeLocal<Object> createObject(
     Local<Context> context,
     const BString& name,
-    const std::vector<Local<Value>>& args
+    int fieldCount
 ) {
     auto isolate = context->GetIsolate();
     EscapableHandleScope handleScope(isolate);
     BString className;
     Local<Object> recv;
-    if (findClassNameAndRecv(context, name, className, recv)) {
-        Local<Function> constructor;
-        if (fromObject(context, recv, className, constructor)) {
-            int argc = static_cast<int>(args.size());
-            auto argv = const_cast<Local<Value>*>(args.data());
-            Local<Object> obj;
-            if (constructor->NewInstance(context, argc, argv).ToLocal(&obj)) {
-                return handleScope.Escape(obj);
-            }
-        }
+    if (!findClassNameAndRecv(context, name, className, recv)) {
+        return MaybeLocal<Object>();
     }
-    KUN_LOG_ERR("Could not new instance from '{}'", name);
-    return Local<Object>();
+    Local<Function> constructor;
+    if (!fromObject(context, recv, className, constructor)) {
+        return MaybeLocal<Object>();
+    }
+    Local<Object> proto;
+    if (getPrototypeOf(context, constructor).ToLocal(&proto)) {
+        auto objTmpl = ObjectTemplate::New(isolate);
+        if (fieldCount > 0) {
+            objTmpl->SetInternalFieldCount(fieldCount);
+        }
+        auto obj = objTmpl->NewInstance(context).ToLocalChecked();
+        obj->SetPrototype(context, proto).Check();
+        return handleScope.Escape(obj);
+    }
+    return MaybeLocal<Object>();
 }
 
 }

@@ -125,8 +125,8 @@ public:
                 resolver->Resolve(context, v8::Undefined(isolate)).Check();
             } else {
                 auto errCode = req.get<int>(1);
-                auto [code, phrase] = SysErr(errCode);
-                auto errStr = BString::format("({}) {}", code, phrase);
+                auto [code, name, phrase] = SysErr(errCode);
+                auto errStr = BString::format("{}({}) {}", name, code, phrase);
                 auto v8Str = util::toV8String(isolate, errStr);
                 resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
             }
@@ -145,8 +145,8 @@ public:
             resolver->Resolve(context, num).Check();
         } else {
             auto errCode = req.get<int>(1);
-            auto [code, phrase] = SysErr(errCode);
-            auto errStr = BString::format("({}) {}", code, phrase);
+            auto [code, name, phrase] = SysErr(errCode);
+            auto errStr = BString::format("{}({}) {}", name, code, phrase);
             auto v8Str = util::toV8String(isolate, errStr);
             resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }
@@ -171,8 +171,8 @@ public:
                 resolver->Resolve(context, v8::Null(isolate)).Check();
                 return;
             }
-            auto [code, phrase] = SysErr(errCode);
-            auto errStr = BString::format("({}) {}", code, phrase);
+            auto [code, name, phrase] = SysErr(errCode);
+            auto errStr = BString::format("{}({}) {}", name, code, phrase);
             auto v8Str = util::toV8String(isolate, errStr);
             resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }
@@ -204,8 +204,8 @@ public:
                 resolver->Resolve(context, v8::Null(isolate)).Check();
                 return;
             }
-            auto [code, phrase] = SysErr(errCode);
-            auto errStr = BString::format("({}) {}", code, phrase);
+            auto [code, name, phrase] = SysErr(errCode);
+            auto errStr = BString::format("{}({}) {}", name, code, phrase);
             auto v8Str = util::toV8String(isolate, errStr);
             resolver->Reject(context, v8::Exception::TypeError(v8Str)).Check();
         }

@@ -19,7 +19,7 @@ public:
 
     EsModule& operator=(EsModule&&) = delete;
 
-    EsModule(Environment* env);
+    explicit EsModule(Environment* env);
 
     ~EsModule() = default;
 

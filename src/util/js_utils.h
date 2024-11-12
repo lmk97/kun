@@ -256,8 +256,12 @@ bool checkFuncArgs(const v8::FunctionCallbackInfo<v8::Value>& info) {
                 return;
             }
         }
-        mismatchIndex = argIndex;
-        expectedName = JS::name<N>();
+        if constexpr (!(N & JS::Any)) {
+            if (mismatchIndex == -1) {
+                mismatchIndex = argIndex;
+                expectedName = JS::name<N>();
+            }
+        }
     }(std::integral_constant<uint32_t, NS>{}), ...);
     constexpr int typeNum = sizeof...(NS);
     if (optionalCount + argNum < typeNum) {
@@ -270,7 +274,7 @@ bool checkFuncArgs(const v8::FunctionCallbackInfo<v8::Value>& info) {
     }
     if (matchCount != typeNum) {
         auto errStr = BString::format(
-            "Type mismatch at parameter \x1b[0;33m{}\x1b[0m. Expected: {}",
+            "parameter {} is not of type '{}'",
             mismatchIndex, expectedName
         );
         util::throwTypeError(isolate, errStr);

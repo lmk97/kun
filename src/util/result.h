@@ -29,14 +29,14 @@ public:
     Result(SysErr sysErr) : errCode(sysErr.code) {}
 
     ~Result() {
-        if (SysErr::isSuccess(errCode)) {
+        if (errCode == 0) {
             using ValueType = T;
             value.~ValueType();
         }
     }
 
     operator bool() const {
-        return SysErr::isSuccess(errCode);
+        return errCode == 0;
     }
 
     SysErr err() const {
@@ -45,16 +45,16 @@ public:
 
     template<typename... TS>
     T&& expect(const BString& fmt, TS&&... args) {
-        if (!SysErr::isSuccess(errCode)) {
+        if (errCode != 0) {
             auto str = BString::format(fmt, std::forward<TS>(args)...);
             if (!str.empty()) {
                 fprintf(stderr, "\x1b[0;31mERROR\x1b[0m: %s\n", str.c_str());
             } else {
-                auto [code, phrase] = SysErr(errCode);
+                auto [code, name, phrase] = SysErr(errCode);
                 fprintf(
                     stderr,
-                    "\x1b[0;31mERROR\x1b[0m: (\x1b[0;33m%d\x1b[0m) %s\n",
-                    code, phrase
+                    "\x1b[0;31mERROR\x1b[0m: %s(\x1b[0;33m%d\x1b[0m) %s\n",
+                    name, code, phrase
                 );
             }
             ::exit(EXIT_FAILURE);

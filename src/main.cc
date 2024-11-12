@@ -46,7 +46,7 @@ int wmain(int argc, wchar_t** wargv) {
     WSADATA wsaData;
     int rc = ::WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (rc != 0) {
-        KUN_LOG_ERR("({}) WSAStartup", rc);
+        KUN_LOG_ERR("WSAStartup failed with error {}", rc);
         return EXIT_FAILURE;
     }
     if (HIBYTE(wsaData.wVersion) != 2 || LOBYTE(wsaData.wVersion) != 2) {
@@ -56,7 +56,7 @@ int wmain(int argc, wchar_t** wargv) {
     ON_SCOPE_EXIT {
         if (::WSACleanup() == SOCKET_ERROR) {
             auto errCode = ::WSAGetLastError();
-            KUN_LOG_ERR("({}) WSACleanup", errCode);
+            KUN_LOG_ERR("WSACleanup failed with error {}", errCode);
         }
     };
     auto args = new BString[argc];

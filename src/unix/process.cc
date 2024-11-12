@@ -62,7 +62,7 @@ Result<BString> getHomeDir() {
         }
     }
     if (result == nullptr) {
-        return SysErr::err("'HOME' is not found");
+        return SysErr("'HOME' is not found");
     }
     return BString(pw.pw_dir, strlen(pw.pw_dir));
 }

@@ -394,7 +394,7 @@ inline BString BString::format(const BString& fmt, TS&&... args) {
         if (!found) {
             result.append(prev, end - prev);
         }
-        using T = typename std::remove_cv_t<std::remove_reference_t<decltype(t)>>;
+        using T = typename kun::remove_cvref<decltype(t)>;
         static_assert(
             kun::is_bool<T> ||
             kun::is_char<T> ||
@@ -413,6 +413,8 @@ inline BString BString::format(const BString& fmt, TS&&... args) {
             if (ec == std::errc()) {
                 result.append(s, ptr - s);
             }
+        } else if constexpr (kun::is_comptime_str<T>) {
+            result.append(t, sizeof(T) - 1);
         } else if constexpr (kun::is_c_str<T>) {
             result.append(t, strlen(t));
         } else if constexpr (std::is_same_v<T, BString>) {

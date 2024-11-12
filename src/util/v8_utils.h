@@ -4,8 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <vector>
+
 #include "v8.h"
 #include "util/bstring.h"
+#include "util/traits.h"
 
 namespace kun {
 
@@ -45,16 +48,10 @@ void inherit(
     const BString& parentName
 );
 
-v8::Local<v8::Object> createObject(
+v8::MaybeLocal<v8::Object> createObject(
     v8::Local<v8::Context> context,
     const BString& name,
     int fieldCount
-);
-
-v8::Local<v8::Object> newInstance(
-    v8::Local<v8::Context> context,
-    const BString& name,
-    const std::vector<v8::Local<v8::Value>>& args
 );
 
 inline v8::Local<v8::String> toV8String(v8::Isolate* isolate, const BString& str) {
@@ -155,16 +152,15 @@ inline bool fromObject(
     const T& t,
     U& u
 ) {
-    using K = typename std::remove_cv_t<T>;
     static_assert(
-        std::is_same_v<K, v8::Local<v8::String>> ||
-        std::is_same_v<K, v8::Local<v8::Symbol>> ||
-        std::is_same_v<K, v8::Local<v8::Name>> ||
-        std::is_same_v<K, v8::Local<v8::Value>> ||
-        std::is_same_v<K, uint32_t> ||
-        std::is_same_v<K, BString> ||
-        std::is_same_v<K, int> ||
-        kun::is_c_str<K>
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::String>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Symbol>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Name>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Value>> ||
+        std::is_same_v<std::remove_cv_t<T>, uint32_t> ||
+        std::is_same_v<std::remove_cv_t<T>, BString> ||
+        std::is_same_v<std::remove_cv_t<T>, int> ||
+        kun::is_c_str<T>
     );
     static_assert(
         std::is_same_v<U, v8::Local<v8::Value>> ||
@@ -178,12 +174,12 @@ inline bool fromObject(
     );
     auto isolate = context->GetIsolate();
     v8::Local<v8::Value> value;
-    if constexpr (std::is_same_v<K, BString>) {
+    if constexpr (std::is_same_v<std::remove_cv_t<T>, BString>) {
         auto v8Str = toV8String(isolate, t);
         if (!obj->Get(context, v8Str).ToLocal(&value)) {
             return false;
         }
-    } else if constexpr (kun::is_c_str<K>) {
+    } else if constexpr (kun::is_c_str<T>) {
         auto str = BString::view(t, strlen(t));
         auto v8Str = toV8String(isolate, str);
         if (!obj->Get(context, v8Str).ToLocal(&value)) {
@@ -239,20 +235,19 @@ inline bool fromObject(
 
 template<typename T>
 inline bool inObject(v8::Local<v8::Context> context, v8::Local<v8::Object> obj, const T& t) {
-    using K = typename std::remove_cv_t<T>;
     static_assert(
-        std::is_same_v<K, v8::Local<v8::String>> ||
-        std::is_same_v<K, v8::Local<v8::Symbol>> ||
-        std::is_same_v<K, v8::Local<v8::Name>> ||
-        std::is_same_v<K, v8::Local<v8::Value>> ||
-        std::is_same_v<K, uint32_t> ||
-        std::is_same_v<K, BString> ||
-        kun::is_c_str<K>
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::String>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Symbol>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Name>> ||
+        std::is_same_v<std::remove_cv_t<T>, v8::Local<v8::Value>> ||
+        std::is_same_v<std::remove_cv_t<T>, uint32_t> ||
+        std::is_same_v<std::remove_cv_t<T>, BString> ||
+        kun::is_c_str<T>
     );
-    if constexpr (std::is_same_v<K, BString>) {
+    if constexpr (std::is_same_v<std::remove_cv_t<T>, BString>) {
         auto v8Str = toV8String(context->GetIsolate(), t);
         return obj->Has(context, v8Str).FromMaybe(false);
-    } else if constexpr (kun::is_c_str<K>) {
+    } else if constexpr (kun::is_c_str<T>) {
         auto str = BString::view(t, strlen(t));
         auto v8Str = toV8String(context->GetIsolate(), str);
         return obj->Has(context, v8Str).FromMaybe(false);
@@ -273,14 +268,15 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
         kun::is_number<T> ||
         kun::is_bool<T>
     );
+    auto isolate = obj->GetIsolate();
     BString errStr = "Illegal invocation";
     if (obj->InternalFieldCount() <= index) {
-        throwTypeError(obj->GetIsolate(), errStr);
+        throwTypeError(isolate, errStr);
         return false;
     }
     auto data = obj->GetInternalField(index);
     if (data.IsEmpty() || !data->IsValue()) {
-        throwTypeError(obj->GetIsolate(), errStr);
+        throwTypeError(isolate, errStr);
         return false;
     }
     auto value = data.As<v8::Value>();
@@ -310,7 +306,6 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
         }
     } else if constexpr (std::is_same_v<T, BString>) {
         if (value->IsString()) {
-            auto isolate = obj->GetIsolate();
             auto v8Str = value.As<v8::String>();
             auto len = v8Str->Utf8Length(isolate);
             t.resize(0);
@@ -326,25 +321,85 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
             success = true;
         }
     } else if constexpr (kun::is_bool<T>) {
-        auto isolate = obj->GetIsolate();
         t = value->BooleanValue(isolate);
         success = true;
     }
     if (!success) {
-        throwTypeError(obj->GetIsolate(), errStr);
+        throwTypeError(isolate, errStr);
     }
     return success;
 }
 
-inline v8::Local<v8::Object> getPrototypeOf(
+inline v8::MaybeLocal<v8::Object> getPrototypeOf(
     v8::Local<v8::Context> context,
     v8::Local<v8::Function> func
 ) {
+    auto isolate = context->GetIsolate();
+    v8::EscapableHandleScope handleScope(isolate);
     v8::Local<v8::Object> obj;
     if (fromObject(context, func, "prototype", obj)) {
-        return obj;
+        return handleScope.Escape(obj);
     }
-    return v8::Local<v8::Object>();
+    return v8::MaybeLocal<v8::Object>();
+}
+
+template<typename... TS>
+v8::MaybeLocal<v8::Object> newInstance(
+    v8::Local<v8::Context> context,
+    const BString& name,
+    TS&&... args
+) {
+    auto isolate = context->GetIsolate();
+    v8::EscapableHandleScope handleScope(isolate);
+    auto recv = context->Global();
+    size_t prev = 0;
+    auto index = name.find(".");
+    while (index != BString::END) {
+        auto key = name.substring(prev, index);
+        prev = index + 1;
+        v8::Local<v8::Object> obj;
+        if (!fromObject(context, obj, key, obj)) {
+            return v8::MaybeLocal<v8::Object>();
+        }
+        recv = obj;
+        index = name.find(".", prev);
+    }
+    auto className = name.substring(prev);
+    std::vector<v8::Local<v8::Value>> values;
+    values.reserve(sizeof...(TS));
+    ([&](auto&& t) {
+        using T = typename kun::remove_cvref<decltype(t)>;
+        if constexpr (std::is_same_v<BString, T>) {
+            auto v8Str = toV8String(isolate, t);
+            values.emplace_back(v8Str);
+        } else if constexpr (kun::is_comptime_str<T>) {
+            auto str = BString::view(t, sizeof(T) - 1);
+            auto v8Str = toV8String(isolate, str);
+            values.emplace_back(v8Str);
+        } else if constexpr (kun::is_c_str<T>) {
+            auto str = BString::view(t, strlen(t));
+            auto v8Str = toV8String(isolate, str);
+            values.emplace_back(v8Str);
+        } else if constexpr (kun::is_bool<T>) {
+            auto b = v8::Boolean::New(isolate, t);
+            values.emplace_back(b);
+        } else if constexpr (kun::is_number<T>) {
+            auto num = v8::Number::New(isolate, t);
+            values.emplace_back(num);
+        } else {
+            values.emplace_back(t);
+        }
+    }(std::forward<TS>(args)), ...);
+    v8::Local<v8::Function> constructor;
+    if (fromObject(context, recv, className, constructor)) {
+        int argc = static_cast<int>(values.size());
+        auto argv = values.data();
+        v8::Local<v8::Object> obj;
+        if (constructor->NewInstance(context, argc, argv).ToLocal(&obj)) {
+            return handleScope.Escape(obj);
+        }
+    }
+    return v8::MaybeLocal<v8::Object>();
 }
 
 }

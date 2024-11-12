@@ -23,7 +23,7 @@ public:
 
     ThreadPool& operator=(ThreadPool&&) = delete;
 
-    ThreadPool(AsyncHandler* asyncHandler);
+    explicit ThreadPool(AsyncHandler* asyncHandler);
 
     ~ThreadPool() = default;
 

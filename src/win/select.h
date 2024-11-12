@@ -31,7 +31,7 @@ public:
 
     EventLoop& operator=(EventLoop&&) = delete;
 
-    EventLoop(Environment* env);
+    explicit EventLoop(Environment* env);
 
     ~EventLoop() = default;
 

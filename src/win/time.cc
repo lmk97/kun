@@ -2,7 +2,6 @@
 
 #ifdef KUN_PLATFORM_WIN32
 
-#include <stdint.h>
 #include <windows.h>
 
 #include "util/sys_err.h"
@@ -28,12 +27,22 @@ inline Result<uint64_t> getFrequency() {
 
 namespace KUN_SYS {
 
-Result<struct timespec> nanosecond() {
+Result<uint64_t> microsecond() {
     static auto frequency = getFrequency().unwrap();
     LARGE_INTEGER value;
     if (::QueryPerformanceCounter(&value) != 0) {
         auto ticks = static_cast<uint64_t>(value.QuadPart);
         auto us = ticks * 1000000 / frequency;
+        return us;
+    }
+    auto errCode = convertError(::GetLastError());
+    return SysErr(errCode);
+}
+
+Result<struct timespec> nanosecond() {
+    auto result = microsecond();
+    if (result) {
+        auto us = result.unwrap();
         auto s = us / 1000000;
         auto ns = (us - s * 1000000) * 1000;
         struct timespec ts;
@@ -41,8 +50,7 @@ Result<struct timespec> nanosecond() {
         ts.tv_nsec = static_cast<long>(ns);
         return ts;
     }
-    auto errCode = convertError(::GetLastError());
-    return SysErr(errCode);
+    return result.err();
 }
 
 }

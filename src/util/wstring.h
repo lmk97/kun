@@ -348,7 +348,7 @@ inline WString WString::format(const WString& fmt, TS&&... args) {
         if (!found) {
             result.append(prev, end - prev);
         }
-        using T = typename std::remove_cv_t<std::remove_reference_t<decltype(t)>>;
+        using T = typename kun::remove_cvref<decltype(t)>;
         static_assert(
             kun::is_bool<T> ||
             kun::is_wchar<T> ||
@@ -364,6 +364,8 @@ inline WString WString::format(const WString& fmt, TS&&... args) {
         } else if constexpr (kun::is_number<T>) {
             auto s = std::to_wstring(t);
             result.append(s.data(), s.length());
+        } else if constexpr (kun::is_comptime_wstr<T>) {
+            result.append(t, sizeof(T) - 1);
         } else if constexpr (kun::is_wc_str<T>) {
             result.append(t, wcslen(t));
         } else if constexpr (std::is_same_v<T, WString>) {
