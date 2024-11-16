@@ -11,13 +11,17 @@
 #include "util/constants.h"
 #include "web/event_target.h"
 
+#include "sys/io.h"
+
 namespace kun::web {
 
 class AbortSignal : public EventTarget {
 public:
     AbortSignal(Environment* env, v8::Local<v8::Object> obj) : EventTarget(env, obj, this) {}
 
-    ~AbortSignal() = default;
+    ~AbortSignal() {
+        kun::sys::println("~AbortSignal()");
+    }
 
     bool isAborted() const {
         return !abortReason.IsEmpty();
@@ -29,15 +33,17 @@ public:
 
     void addAlgorithm(v8::Local<v8::Function> func);
 
+    void runAbortSteps();
+
     void signalAbort(v8::Local<v8::Value> value);
 
     static v8::Local<v8::Object> abort(Environment* env, v8::Local<v8::Value> value);
 
-    static v8::Local<v8::Object> timeout(Environment* env, uint64_t milliseconds);
+    static v8::Local<v8::Object> timeout(Environment* env, int64_t milliseconds);
 
     static v8::Local<v8::Object> any(
         Environment* env,
-        const std::vector<v8::Local<v8::Value>>& signals
+        const std::vector<v8::Local<v8::Object>>& signals
     );
 
     v8::Global<v8::Value> abortReason;

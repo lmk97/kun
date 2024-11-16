@@ -14,11 +14,11 @@ namespace kun::web {
 
 void expose(Local<Context> context, ExposedScope exposedScope) {
     //exposeAbortController(context, exposedScope);
+    exposeEventTarget(context, exposedScope);
     exposeAbortSignal(context, exposedScope);
     exposeConsole(context, exposedScope);
     exposeDOMException(context, exposedScope);
     exposeEvent(context, exposedScope);
-    exposeEventTarget(context, exposedScope);
     exposeTimers(context, exposedScope);
 }
 

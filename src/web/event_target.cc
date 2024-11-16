@@ -175,6 +175,12 @@ bool innerInvokeEventListeners(
         if (listener.once) {
             listener.removed = true;
         }
+        ON_SCOPE_EXIT {
+            if (listener.removed) {
+                listener.callback.Reset();
+                listener.signal.Reset();
+            }
+        };
         if (listener.passive) {
             event->inPassiveListenerFlag = true;
         }
@@ -212,8 +218,8 @@ bool innerInvokeEventListeners(
 
 void invokeEventListeners(
     Local<Context> context,
-    Event* event,
     const EventPath& eventPath,
+    Event* event,
     const BString& phase
 ) {
     auto isolate = context->GetIsolate();
@@ -470,7 +476,7 @@ bool EventTarget::dispatchEvent(Event* event) {
         } else {
             event->eventPhase = Event::CAPTURING_PHASE;
         }
-        invokeEventListeners(context, event, eventPath, "capturing");
+        invokeEventListeners(context, eventPath, event, "capturing");
     }
     for (const auto& eventPath : path) {
         if (!eventPath.shadowAdjustedTarget.IsEmpty()) {
@@ -481,7 +487,7 @@ bool EventTarget::dispatchEvent(Event* event) {
             }
             event->eventPhase = Event::BUBBLING_PHASE;
         }
-        invokeEventListeners(context, event, eventPath, "bubbling");
+        invokeEventListeners(context, eventPath, event, "bubbling");
     }
     event->eventPhase = Event::NONE;
     event->currentTarget.Reset();
