@@ -37,6 +37,7 @@ using kun::util::formatException;
 using kun::util::formatStackTrace;
 using kun::util::fromObject;
 using kun::util::inObject;
+using kun::util::instanceOf;
 using kun::util::setFunction;
 using kun::util::setToStringTag;
 using kun::util::throwTypeError;
@@ -269,12 +270,12 @@ BString formatBigInt(Local<Context> context, T t) {
         suffix = "]";
     }
     auto isolate = context->GetIsolate();
-    auto len = v8Str->Utf8Length(isolate);
+    const auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + 11 + len);
     result += "\x1b[0;33m";
     result += prefix;
     auto buf = result.data() + result.length();
-    v8Str->WriteUtf8(isolate, buf);
+    v8Str->WriteUtf8(isolate, buf, len);
     result.resize(result.length() + len);
     result += "n";
     result += suffix;
@@ -305,12 +306,12 @@ BString formatBoolean(Local<Context> context, T t) {
 BString formatDate(Local<Context> context, Local<Date> date) {
     auto isolate = context->GetIsolate();
     auto isoStr = date->ToISOString();
-    auto len = isoStr->Utf8Length(isolate);
+    const auto len = isoStr->Utf8Length(isolate);
     BString result;
     result.reserve(11 + len);
     result += "\x1b[0;35m";
     auto buf = result.data() + result.length();
-    isoStr->WriteUtf8(isolate, buf);
+    isoStr->WriteUtf8(isolate, buf, len);
     result.resize(result.length() + len);
     result += "\x1b[0m";
     return result;
@@ -319,7 +320,7 @@ BString formatDate(Local<Context> context, Local<Date> date) {
 BString formatFunction(Local<Context> context, Local<Function> func) {
     auto isolate = context->GetIsolate();
     Local<String> v8Str;
-    size_t len = 0;
+    int len = 0;
     if (func->GetName()->ToString(context).ToLocal(&v8Str)) {
         len = v8Str->Utf8Length(isolate);
     }
@@ -339,7 +340,7 @@ BString formatFunction(Local<Context> context, Local<Function> func) {
     } else {
         result += ": ";
         auto buf = result.data() + result.length();
-        v8Str->WriteUtf8(isolate, buf);
+        v8Str->WriteUtf8(isolate, buf, len);
         result.resize(result.length() + len);
     }
     result += "]";
@@ -383,7 +384,7 @@ BString formatNumber(Local<Context> context, T t) {
         return result;
     }
     auto isolate = context->GetIsolate();
-    auto len = v8Str->Utf8Length(isolate);
+    const auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + 10 + len);
     BString prefix;
     BString suffix;
@@ -394,7 +395,7 @@ BString formatNumber(Local<Context> context, T t) {
     result += "\x1b[0;33m";
     result += prefix;
     auto buf = result.data() + result.length();
-    v8Str->WriteUtf8(isolate, buf);
+    v8Str->WriteUtf8(isolate, buf, len);
     result.resize(result.length() + len);
     result += suffix;
     result += "\x1b[0m";
@@ -430,11 +431,11 @@ BString formatRegExp(Local<Context> context, Local<RegExp> regExp) {
         return result;
     }
     auto isolate = context->GetIsolate();
-    auto len = v8Str->Utf8Length(isolate);
+    const auto len = v8Str->Utf8Length(isolate);
     result.reserve(11 + len);
     result += "\x1b[0;31m";
     auto buf = result.data() + result.length();
-    v8Str->WriteUtf8(isolate, buf);
+    v8Str->WriteUtf8(isolate, buf, len);
     result.resize(result.length() + len);
     result += "\x1b[0m";
     return result;
@@ -450,11 +451,11 @@ BString formatString(Local<Context> context, T t) {
     BString color = "\x1b[0;32m";
     if constexpr (std::is_same_v<T, Local<String>>) {
         auto isolate = context->GetIsolate();
-        auto len = t->Utf8Length(isolate);
+        const auto len = t->Utf8Length(isolate);
         result.reserve(11 + len);
         result += color;
         auto buf = result.data() + result.length();
-        t->WriteUtf8(isolate, buf);
+        t->WriteUtf8(isolate, buf, len);
         result.resize(result.length() + len);
     } else {
         auto str = toBString(context, t);
@@ -659,6 +660,8 @@ BString formatArrayBuffer(Local<Context> context, T t) {
 }
 
 BString formatTypedArray(Local<Context> context, Local<TypedArray> arr) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
     auto console = Console::from(context);
     if (console == nullptr) {
         return "[]";
@@ -917,6 +920,50 @@ BString formatIterator(Local<Context> context, Local<Object> obj, Local<Value> r
     return result;
 }
 
+BString formatDOMException(Local<Context> context, Local<Object> obj, Local<Value> root) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
+    auto console = Console::from(context);
+    if (console == nullptr) {
+        return "{}";
+    }
+    console->indents += INDENT_SIZE;
+    ON_SCOPE_EXIT {
+        console->indents -= INDENT_SIZE;
+    };
+    BString names[] = {"code", "name", "message"};
+    constexpr auto namesLen = sizeof(names) / sizeof(BString);
+    std::vector<BString> strs;
+    strs.reserve(namesLen);
+    size_t capacity = 0;
+    for (size_t i = 0; i < namesLen; i++) {
+        BString str;
+        Local<Value> value;
+        if (fromObject(context, obj, names[i], value)) {
+            str = handleCircular(context, value, obj, root);
+        } else {
+            str = formatUndefined();
+        }
+        capacity += names[i].length() + 2 + str.length();
+        strs.emplace_back(names[i]);
+        strs.emplace_back(": ");
+        strs.emplace_back(std::move(str));
+    }
+    BString prefix = "DOMException ";
+    const auto indents = console->indents;
+    capacity += namesLen * (indents + 2);
+    capacity += prefix.length() + 4 + indents - INDENT_SIZE;
+    BString result;
+    result.reserve(capacity);
+    result += prefix;
+    result += "{\n";
+    appendObject(result, strs, indents);
+    result += "\n";
+    appendIndents(result, indents - INDENT_SIZE);
+    result += "}";
+    return result;
+}
+
 BString formatObject(Local<Context> context, Local<Object> obj, Local<Value> root) {
     auto isolate = context->GetIsolate();
     HandleScope handleScope(isolate);
@@ -1075,6 +1122,9 @@ BString formatValue(Local<Context> context, Local<Value> value, Local<Value> roo
     }
     if (value->IsNativeError()) {
         return formatException(context, value);
+    }
+    if (instanceOf(context, value, "DOMException")) {
+        return formatDOMException(context, value.As<Object>(), root);
     }
     if (value->IsObject()) {
         return formatObject(context, value.As<Object>(), root);

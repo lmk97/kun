@@ -265,7 +265,7 @@ void composedPath(const FunctionCallbackInfo<Value>& info) {
         index += 1;
     }
     auto context = isolate->GetCurrentContext();
-    auto arr = Array::New(isolate, list.size());
+    auto arr = Array::New(isolate, static_cast<int>(list.size()));
     uint32_t arrIndex = 0;
     for (const auto& value : list) {
         arr->Set(context, arrIndex++, value).Check();

@@ -61,11 +61,11 @@ BString toBString(Local<Context> context, Local<Value> value) {
         }
         if (!desc.IsEmpty() && !desc->IsUndefined()) {
             auto v8Str = desc.As<String>();
-            auto len = 8 + v8Str->Utf8Length(isolate);
-            result.reserve(len);
+            const auto len = v8Str->Utf8Length(isolate);
+            result.reserve(len + 8);
             result += "Symbol(";
-            v8Str->WriteUtf8(isolate, result.data() + 7);
-            result.resize(len - 1);
+            v8Str->WriteUtf8(isolate, result.data() + 7, len);
+            result.resize(len + 7);
             result += ")";
         } else {
             result += "Symbol()";
@@ -73,9 +73,9 @@ BString toBString(Local<Context> context, Local<Value> value) {
     } else {
         Local<String> v8Str;
         if (value->ToString(context).ToLocal(&v8Str)) {
-            auto len = v8Str->Utf8Length(isolate);
+            const auto len = v8Str->Utf8Length(isolate);
             result.reserve(len);
-            v8Str->WriteUtf8(isolate, result.data());
+            v8Str->WriteUtf8(isolate, result.data(), len);
             result.resize(len);
         }
     }
@@ -89,9 +89,9 @@ BString formatSourceLine(Local<Context> context, Local<Message> message) {
     auto column = message->GetStartColumn(context).FromMaybe(-1);
     Local<String> v8Str;
     if (column != -1 && message->GetSourceLine(context).ToLocal(&v8Str)) {
-        auto len = v8Str->Utf8Length(isolate);
+        const auto len = v8Str->Utf8Length(isolate);
         result.reserve((len << 1) + 15);
-        v8Str->WriteUtf8(isolate, result.data());
+        v8Str->WriteUtf8(isolate, result.data(), len);
         result.resize(len);
         result += "\n";
         for (decltype(column) i = 0; i < column; i++) {
@@ -135,21 +135,30 @@ BString formatException(Local<Context> context, Local<Value> exception) {
     result.reserve(1023);
     result += "\x1b[0;31m";
     if (!exception->IsNativeError()) {
-        result += "Uncaught (in promise)\x1b[0m: ";
-        result += toBString(context, exception);
+        result += "Uncaught (in promise)\x1b[0m ";
+        if (instanceOf(context, exception, "DOMException")) {
+            auto obj = exception.As<Object>();
+            BString name;
+            fromObject(context, obj, "name", name);
+            BString message;
+            fromObject(context, obj, "message", message);
+            result += name;
+            if (!name.empty() && !message.empty()) {
+                result += ": ";
+            }
+            result += message;
+        } else {
+            result += toBString(context, exception);
+        }
         return result;
     }
     auto obj = exception.As<Object>();
     if (BString str; fromObject(context, obj, "name", str)) {
         result += str;
-    } else {
-        result += "Uncaught (in promise)";
     }
     result += "\x1b[0m: ";
     if (BString str; fromObject(context, obj, "message", str)) {
         result += str;
-    } else {
-        result += toBString(context, exception);
     }
     auto message = Exception::CreateMessage(isolate, exception);
     auto stackTrace = formatStackTrace(context, Exception::GetStackTrace(exception));
@@ -174,11 +183,11 @@ BString formatException(Local<Context> context, Local<Value> exception) {
 }
 
 bool instanceOf(Local<Context> context, Local<Value> value, const BString& name) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
     if (value->IsNullOrUndefined() || !value->IsObject()) {
         return false;
     }
-    auto isolate = context->GetIsolate();
-    HandleScope handleScope(isolate);
     BString className;
     Local<Object> recv;
     if (!findClassNameAndRecv(context, name, className, recv)) {

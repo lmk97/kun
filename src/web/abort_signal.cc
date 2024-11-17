@@ -252,11 +252,11 @@ void AbortSignal::onabort(Local<Value> value) {
 }
 
 void AbortSignal::addAlgorithm(Local<Function> func) {
+    auto isolate = env->getIsolate();
+    HandleScope handleScope(isolate);
     if (isAborted()) {
         return;
     }
-    auto isolate = env->getIsolate();
-    HandleScope handleScope(isolate);
     abortAlgorithms.emplace_back(isolate, func);
 }
 
@@ -280,11 +280,11 @@ void AbortSignal::runAbortSteps() {
 }
 
 void AbortSignal::signalAbort(Local<Value> value) {
+    auto isolate = env->getIsolate();
+    HandleScope handleScope(isolate);
     if (isAborted()) {
         return;
     }
-    auto isolate = env->getIsolate();
-    HandleScope handleScope(isolate);
     auto context = env->getContext();
     if (value.IsEmpty()) {
         value = newInstance(
@@ -357,7 +357,7 @@ Local<Object> AbortSignal::timeout(Environment* env, int64_t milliseconds) {
     ).ToLocalChecked();
     Local<Value> argv[] = {
         callback,
-        Number::New(isolate, milliseconds)
+        Number::New(isolate, static_cast<double>(milliseconds))
     };
     Local<Value> result;
     if (!setTimeout->Call(context, recv, 2, argv).ToLocal(&result)) {

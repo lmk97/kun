@@ -244,12 +244,14 @@ inline bool inObject(v8::Local<v8::Context> context, v8::Local<v8::Object> obj, 
         std::is_same_v<std::remove_cv_t<T>, BString> ||
         kun::is_c_str<T>
     );
+    auto isolate = context->GetIsolate();
+    v8::HandleScope handleScope(isolate);
     if constexpr (std::is_same_v<std::remove_cv_t<T>, BString>) {
-        auto v8Str = toV8String(context->GetIsolate(), t);
+        auto v8Str = toV8String(isolate, t);
         return obj->Has(context, v8Str).FromMaybe(false);
     } else if constexpr (kun::is_c_str<T>) {
         auto str = BString::view(t, strlen(t));
-        auto v8Str = toV8String(context->GetIsolate(), str);
+        auto v8Str = toV8String(isolate, str);
         return obj->Has(context, v8Str).FromMaybe(false);
     } else {
         return obj->Has(context, t).FromMaybe(false);
@@ -307,10 +309,10 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
     } else if constexpr (std::is_same_v<T, BString>) {
         if (value->IsString()) {
             auto v8Str = value.As<v8::String>();
-            auto len = v8Str->Utf8Length(isolate);
+            const auto len = v8Str->Utf8Length(isolate);
             t.resize(0);
             t.reserve(len);
-            v8Str->WriteUtf8(isolate, t.data());
+            v8Str->WriteUtf8(isolate, t.data(), len);
             t.resize(len);
             success = true;
         }

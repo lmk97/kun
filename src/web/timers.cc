@@ -1,7 +1,6 @@
 #include "web/timers.h"
 
 #include "util/js_utils.h"
-#include "util/scope_guard.h"
 #include "util/utils.h"
 #include "util/v8_utils.h"
 
@@ -30,8 +29,9 @@ void createTimer(const FunctionCallbackInfo<Value>& info, bool repeat) {
     }
     auto context = isolate->GetCurrentContext();
     auto env = Environment::from(context);
+    const auto len = info.Length();
     uint64_t microseconds = 1;
-    if (info.Length() > 0) {
+    if (len > 0) {
         Local<Number> num;
         if (info[1]->ToNumber(context).ToLocal(&num)) {
             auto n = static_cast<int64_t>(num->Value());
@@ -40,15 +40,13 @@ void createTimer(const FunctionCallbackInfo<Value>& info, bool repeat) {
             }
         }
     }
-    uint32_t len = 0;
-    if (info.Length() > 2) {
-        len = info.Length() - 2;
+    std::vector<v8::Global<v8::Value>> args;
+    if (len > 2) {
+        for (int i = 2; i < len; i++) {
+            args.emplace_back(isolate, info[i]);
+        }
     }
-    auto arr = Array::New(isolate, len);
-    for (uint32_t i = 0; i < len; i++) {
-        arr->Set(context, i, info[i + 2]).Check();
-    }
-    auto webTimer = new WebTimer(env, info[0], arr, microseconds, repeat);
+    auto webTimer = new WebTimer(env, info[0], std::move(args), microseconds, repeat);
     auto id = env->addWebTimer(webTimer);
     webTimer->id = id;
     auto eventLoop = env->getEventLoop();
@@ -106,27 +104,16 @@ void WebTimer::onReadable() {
     HandleScope handleScope(isolate);
     auto context = env->getContext();
     auto value = handler.Get(isolate);
-    auto arr = args.Get(isolate);
-    const auto len = arr->Length();
     if (value->IsFunction()) {
-        uint32_t argc = 0;
-        Local<Value>* argv = nullptr;
-        ON_SCOPE_EXIT {
-            if (argv != nullptr) {
-                delete[] argv;
-            }
-        };
-        if (len > 0) {
-            argc = len;
-            argv = new Local<Value>[argc];
-            for (uint32_t i = 0; i < argc; i++) {
-                if (!fromObject(context, arr, i, argv[i])) {
-                    KUN_LOG_ERR("parameter {} is invalid", i + 3);
-                }
-            }
+        std::vector<Local<Value>> values;
+        values.reserve(args.size());
+        for (const auto& g : args) {
+            values.emplace_back(g.Get(isolate));
         }
         auto func = value.As<Function>();
         auto recv = v8::Undefined(isolate);
+        auto argc = static_cast<int>(values.size());
+        auto argv = values.empty() ? nullptr : values.data();
         Local<Value> result;
         if (func->Call(context, recv, argc, argv).ToLocal(&result)) {
             env->runMicrotask();
@@ -146,7 +133,7 @@ void WebTimer::onReadable() {
                     env->runMicrotask();
                 }
             } else {
-                throwTypeError(isolate, "parameter 1 is not a string");
+                throwTypeError(isolate, "Failed to convert value to 'string'");
             }
         } else {
             KUN_LOG_ERR("globalThis.eval is not found");

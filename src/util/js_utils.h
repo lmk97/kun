@@ -327,9 +327,9 @@ void callAsyncFunc(const v8::FunctionCallbackInfo<v8::Value>& info, AsyncRequest
         if constexpr (N & JS::String) {
             if (value->IsString()) {
                 auto v8Str = value.As<v8::String>();
-                auto len = v8Str->Utf8Length(isolate);
+                const auto len = v8Str->Utf8Length(isolate);
                 auto buf = new char[len + 1];
-                v8Str->WriteUtf8(isolate, buf);
+                v8Str->WriteUtf8(isolate, buf, len);
                 buf[len] = '\0';
                 req.set(index, buf);
                 ++index;

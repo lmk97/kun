@@ -11,17 +11,13 @@
 #include "util/constants.h"
 #include "web/event_target.h"
 
-#include "sys/io.h"
-
 namespace kun::web {
 
 class AbortSignal : public EventTarget {
 public:
     AbortSignal(Environment* env, v8::Local<v8::Object> obj) : EventTarget(env, obj, this) {}
 
-    ~AbortSignal() {
-        kun::sys::println("~AbortSignal()");
-    }
+    ~AbortSignal() = default;
 
     bool isAborted() const {
         return !abortReason.IsEmpty();

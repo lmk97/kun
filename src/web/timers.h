@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <vector>
+
 #include "v8.h"
 #include "env/environment.h"
 #include "loop/timer.h"
@@ -15,17 +17,19 @@ public:
     WebTimer(
         Environment* env,
         v8::Local<v8::Value> handler,
-        v8::Local<v8::Array> args,
+        std::vector<v8::Global<v8::Value>>&& args,
         uint64_t microseconds,
         bool repeat
     ) :
         Timer(microseconds, TimeUnit::MICROSECOND, repeat),
-        env(env)
+        env(env),
+        handler(env->getIsolate(), handler),
+        args(std::move(args))
     {
-        auto isolate = env->getIsolate();
-        this->handler.Reset(isolate, handler);
-        this->args.Reset(isolate, args);
+
     }
+
+    ~WebTimer() = default;
 
     void onReadable() override final;
 
@@ -34,7 +38,7 @@ public:
 private:
     Environment* env;
     v8::Global<v8::Value> handler;
-    v8::Global<v8::Array> args;
+    std::vector<v8::Global<v8::Value>> args;
 };
 
 namespace web {

@@ -92,11 +92,6 @@ public:
         return nullptr;
     }
 
-    WebTimer* findWebTimer(uint32_t id) const {
-        auto iter = webTimerMap.find(id);
-        return iter != webTimerMap.end() ? iter->second : nullptr;
-    }
-
     BString getKunDir() const {
         return BString::view(kunDir);
     }
@@ -116,8 +111,8 @@ private:
     v8::Isolate* isolate;
     v8::Global<v8::Context> context;
     std::vector<v8::Global<v8::Value>> unhandledRejections;
-    uint32_t webTimerId{1};
     std::unordered_map<uint32_t, WebTimer*> webTimerMap;
+    uint32_t webTimerId{1};
     BString kunDir;
     BString depsDir;
 };

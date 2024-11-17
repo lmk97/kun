@@ -70,6 +70,8 @@ public:
 };
 
 BString findAttrType(Local<Context> context, Local<FixedArray> importAttrs, bool hasOffset) {
+    auto isolate = context->GetIsolate();
+    HandleScope handleScope(isolate);
     int entrySize = hasOffset ? 3 : 2;
     for (int i = 0; i < importAttrs->Length(); i += entrySize) {
         auto key = importAttrs->Get(context, i).As<Value>();
@@ -316,6 +318,7 @@ void doImportModuleDynamically(void* ptr) {
         delete data;
     };
     auto isolate = data->isolate;
+    HandleScope handleScope(isolate);
     auto context = data->context.Get(isolate);
     auto resourceName = data->resourceName.Get(isolate);
     auto specifier = data->specifier.Get(isolate);

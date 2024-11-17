@@ -10,7 +10,6 @@
 #include "sys/process.h"
 #include "util/scope_guard.h"
 #include "util/v8_utils.h"
-#include "web/timers.h"
 #include "web/web.h"
 
 KUN_V8_USINGS;
@@ -46,7 +45,7 @@ void promiseRejectCallback(PromiseRejectMessage rejectMessage) {
     } else {
         auto value = rejectMessage.GetValue();
         auto errStr = toBString(context, value);
-        eprintln("\033[0;31mUncaught (in promise)\033[0m: {}", errStr);
+        eprintln("\x1b[0;31mUncaught (in promise)\x1b[0m {}", errStr);
     }
 }
 
@@ -59,8 +58,8 @@ Environment::Environment(Cmdline* cmdline): cmdline(cmdline) {
     auto appDir = getAppDir().unwrap();
     kunDir = joinPath(appDir, ".kun");
     depsDir = joinPath(kunDir, "deps");
-    makeDirs(kunDir).expect("makeDirs '{}'", kunDir);
-    makeDirs(depsDir).expect("makeDirs '{}'", depsDir);
+    makeDirs(kunDir).expect("Failed to make dir '{}'", kunDir);
+    makeDirs(depsDir).expect("Failed to make dir '{}'", depsDir);
 }
 
 void Environment::run(ExposedScope exposedScope) {
@@ -124,11 +123,11 @@ void Environment::run(ExposedScope exposedScope) {
 }
 
 void Environment::runMicrotask() {
+    HandleScope handleScope(isolate);
     isolate->PerformMicrotaskCheckpoint();
     if (unhandledRejections.empty()) {
         return;
     }
-    HandleScope handleScope(isolate);
     auto context = getContext();
     auto begin = unhandledRejections.cbegin();
     auto end = unhandledRejections.cend();
