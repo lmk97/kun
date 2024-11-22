@@ -102,11 +102,11 @@ void initEvent(const FunctionCallbackInfo<Value>& info) {
     event->type = toBString(context, info[0]);
     event->bubbles = false;
     event->cancelable = false;
-    const auto len = info.Length();
-    if (len > 1) {
+    const auto argNum = info.Length();
+    if (argNum > 1) {
         event->bubbles = info[1]->BooleanValue(isolate);
     }
-    if (len > 2) {
+    if (argNum > 2) {
         event->cancelable = info[2]->BooleanValue(isolate);
     }
 }

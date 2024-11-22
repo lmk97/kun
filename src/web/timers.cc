@@ -29,9 +29,9 @@ void createTimer(const FunctionCallbackInfo<Value>& info, bool repeat) {
     }
     auto context = isolate->GetCurrentContext();
     auto env = Environment::from(context);
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     uint64_t microseconds = 1;
-    if (len > 0) {
+    if (argNum > 0) {
         Local<Number> num;
         if (info[1]->ToNumber(context).ToLocal(&num)) {
             auto n = static_cast<int64_t>(num->Value());
@@ -40,9 +40,9 @@ void createTimer(const FunctionCallbackInfo<Value>& info, bool repeat) {
             }
         }
     }
-    std::vector<v8::Global<v8::Value>> args;
-    if (len > 2) {
-        for (int i = 2; i < len; i++) {
+    std::vector<Global<Value>> args;
+    if (argNum > 2) {
+        for (int i = 2; i < argNum; i++) {
             args.emplace_back(isolate, info[i]);
         }
     }
@@ -136,7 +136,7 @@ void WebTimer::onReadable() {
                 throwTypeError(isolate, "Failed to convert value to 'string'");
             }
         } else {
-            KUN_LOG_ERR("globalThis.eval is not found");
+            KUN_LOG_ERR("globalThis.eval is not defined");
         }
     }
     if (!repeat) {

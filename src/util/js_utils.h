@@ -67,6 +67,9 @@ public:
         if constexpr (N & Set) {
             strs.emplace_back("Set");
         }
+        if constexpr (N & SharedArrayBuffer) {
+            strs.emplace_back("SharedArrayBuffer");
+        }
         if constexpr (N & String) {
             strs.emplace_back("string");
         }
@@ -113,11 +116,12 @@ public:
     static constexpr uint32_t Promise = 1 << 12;
     static constexpr uint32_t RegExp = 1 << 13;
     static constexpr uint32_t Set = 1 << 14;
-    static constexpr uint32_t String = 1 << 15;
-    static constexpr uint32_t Symbol = 1 << 16;
-    static constexpr uint32_t TypedArray = 1 << 17;
-    static constexpr uint32_t Uint8Array = 1 << 18;
-    static constexpr uint32_t Undefined = 1 << 19;
+    static constexpr uint32_t SharedArrayBuffer = 1 << 15;
+    static constexpr uint32_t String = 1 << 16;
+    static constexpr uint32_t Symbol = 1 << 17;
+    static constexpr uint32_t TypedArray = 1 << 18;
+    static constexpr uint32_t Uint8Array = 1 << 19;
+    static constexpr uint32_t Undefined = 1 << 20;
 };
 
 namespace util {
@@ -222,6 +226,12 @@ bool checkFuncArgs(const v8::FunctionCallbackInfo<v8::Value>& info) {
         }
         if constexpr (N & JS::Set) {
             if (value->IsSet()) {
+                ++matchCount;
+                return;
+            }
+        }
+        if constexpr (N & JS::SharedArrayBuffer) {
+            if (value->IsSharedArrayBuffer()) {
                 ++matchCount;
                 return;
             }

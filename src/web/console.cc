@@ -94,7 +94,7 @@ BString escape(const BString& str) {
     BString result;
     result.reserve((len << 1) + (len >> 1));
     while (p < end) {
-        auto c = *p++;
+        const auto c = *p++;
         if (c >= 32 && c <= 126) {
             if (c != '\'') {
                 char s[] = {c};
@@ -104,7 +104,7 @@ BString escape(const BString& str) {
                 result.append(s, 2);
             }
         } else if (c >= 7 && c <= 13) {
-            constexpr auto base = "abtnvfr";
+            auto base = "abtnvfr";
             char s[] = {'\\', base[c - 7]};
             result.append(s, 2);
         } else {
@@ -118,7 +118,7 @@ BString escape(const BString& str) {
                 }
             }
             if (escapable) {
-                constexpr auto base = "0123456789abcdef";
+                auto base = "0123456789abcdef";
                 auto i = u >> 4;
                 auto j = u - (i << 4);
                 char s[] = {'\\', 'x', base[i], base[j]};
@@ -1158,12 +1158,12 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
     std::vector<BString> strs;
-    const auto len = info.Length();
-    if (begin < 0 || end <= begin || begin >= len) {
+    const auto argNum = info.Length();
+    if (begin < 0 || end <= begin || begin >= argNum) {
         return strs;
     }
-    if (end > begin + len) {
-        end = begin + len;
+    if (end > begin + argNum) {
+        end = begin + argNum;
     }
     strs.reserve(end - begin);
     auto context = isolate->GetCurrentContext();
@@ -1193,12 +1193,12 @@ std::vector<BString> format(const FunctionCallbackInfo<Value>& info, int begin, 
             auto globalThis = context->Global();
             Local<Function> parseInt;
             if (!fromObject(context, globalThis, "parseInt", parseInt)) {
-                KUN_LOG_ERR("globalThis.parseInt is not found");
+                KUN_LOG_ERR("globalThis.parseInt is not defined");
                 break;
             }
             Local<Function> parseFloat;
             if (!fromObject(context, globalThis, "parseFloat", parseFloat)) {
-                KUN_LOG_ERR("globalThis.parseFloat is not found");
+                KUN_LOG_ERR("globalThis.parseFloat is not defined");
                 break;
             }
             size_t capacity = 0;
@@ -1339,15 +1339,15 @@ void println(
 void assert(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     constexpr auto logLevel = LogLevel::ERROR;
-    if (len <= 0 || !info[0]->BooleanValue(isolate)) {
+    if (argNum <= 0 || !info[0]->BooleanValue(isolate)) {
         print(logLevel, "Assertion failed");
-        if (len <= 1) {
+        if (argNum <= 1) {
             println(logLevel, "");
         } else {
             print(logLevel, ": ");
-            println(logLevel, info, 1, len - 1);
+            println(logLevel, info, 1, argNum - 1);
         }
     }
 }
@@ -1408,9 +1408,9 @@ void warn(const FunctionCallbackInfo<Value>& info) {
 void dir(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     constexpr auto logLevel = LogLevel::LOG;
-    if (len <= 0) {
+    if (argNum <= 0) {
         auto str = formatUndefined();
         println(logLevel, str);
         return;
@@ -1427,7 +1427,7 @@ void dir(const FunctionCallbackInfo<Value>& info) {
             console->depth = depth;
             console->showHidden = showHidden;
         };
-        if (len > 1 && info[1]->IsObject()) {
+        if (argNum > 1 && info[1]->IsObject()) {
             auto options = info[1].As<Object>();
             if (
                 Local<Value> value;
@@ -1468,9 +1468,9 @@ void count(const FunctionCallbackInfo<Value>& info) {
     if (console == nullptr) {
         return;
     }
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     auto& countMap = console->countMap;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto label = argNum > 0 ? toBString(context, info[0]) : "default";
     auto iter = countMap.find(label);
     auto found = iter != countMap.end();
     uint64_t num = 1;
@@ -1491,9 +1491,9 @@ void countReset(const FunctionCallbackInfo<Value>& info) {
     if (console == nullptr) {
         return;
     }
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     auto& countMap = console->countMap;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto label = argNum > 0 ? toBString(context, info[0]) : "default";
     auto iter = countMap.find(label);
     if (iter != countMap.end()) {
         iter->second = 0;
@@ -1547,9 +1547,9 @@ void time(const FunctionCallbackInfo<Value>& info) {
     if (console == nullptr) {
         return;
     }
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     auto& timerTable = console->timerTable;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto label = argNum > 0 ? toBString(context, info[0]) : "default";
     auto iter = timerTable.find(label);
     if (iter == timerTable.end()) {
         auto us = microsecond().unwrap();
@@ -1567,18 +1567,18 @@ void timeLog(const FunctionCallbackInfo<Value>& info) {
     if (console == nullptr) {
         return;
     }
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     constexpr auto logLevel = LogLevel::LOG;
     auto& timerTable = console->timerTable;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto label = argNum > 0 ? toBString(context, info[0]) : "default";
     auto iter = timerTable.find(label);
     if (iter != timerTable.end()) {
         auto us = microsecond().unwrap();
         auto duration = static_cast<double>(us - iter->second) / 1000;
         print(logLevel, "{}: {} ms", label, duration);
-        if (len > 1) {
+        if (argNum > 1) {
             print(logLevel, " ");
-            println(logLevel, info, 1, len - 1);
+            println(logLevel, info, 1, argNum - 1);
         } else {
             println(logLevel, "");
         }
@@ -1595,10 +1595,10 @@ void timeEnd(const FunctionCallbackInfo<Value>& info) {
     if (console == nullptr) {
         return;
     }
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     constexpr auto logLevel = LogLevel::INFO;
     auto& timerTable = console->timerTable;
-    auto label = len > 0 ? toBString(context, info[0]) : "default";
+    auto label = argNum > 0 ? toBString(context, info[0]) : "default";
     auto iter = timerTable.find(label);
     if (iter != timerTable.end()) {
         auto us = microsecond().unwrap();

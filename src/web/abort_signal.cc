@@ -11,6 +11,7 @@ using kun::Environment;
 using kun::InternalField;
 using kun::JS;
 using kun::web::AbortSignal;
+using kun::web::Event;
 using kun::util::checkFuncArgs;
 using kun::util::createObject;
 using kun::util::defineAccessor;
@@ -26,6 +27,37 @@ using kun::util::toV8String;
 
 namespace {
 
+void appendIfAbsent(std::list<Global<Object>>& list, Isolate* isolate, Local<Object> obj) {
+    auto target = Global<Object>(isolate, obj);
+    for (const auto& g : list) {
+        if (g == target) {
+            return;
+        }
+    }
+    list.emplace_back(std::move(target));
+}
+
+void runAbortSteps(AbortSignal* abortSignal) {
+    auto env = abortSignal->env;
+    auto isolate = env->getIsolate();
+    HandleScope handleScope(isolate);
+    auto context = env->getContext();
+    auto& abortAlgorithms = abortSignal->abortAlgorithms;
+    auto recv = v8::Undefined(isolate);
+    for (const auto& algorithm : abortAlgorithms) {
+        auto func = algorithm.Get(isolate);
+        Local<Value> result;
+        if (!func->Call(context, recv, 0, nullptr).ToLocal(&result)) {
+            KUN_LOG_ERR("Failed to invoke 'algorithm'");
+        }
+    }
+    abortAlgorithms.clear();
+    auto eventObj = newInstance(context, "Event", "abort").ToLocalChecked();
+    auto event = InternalField<Event>::get(eventObj, 0);
+    event->isTrusted = true;
+    abortSignal->dispatchEvent(event);
+}
+
 void timeoutCallback(const FunctionCallbackInfo<Value>& info) {
     auto isolate = info.GetIsolate();
     HandleScope handleScope(isolate);
@@ -39,16 +71,6 @@ void timeoutCallback(const FunctionCallbackInfo<Value>& info) {
         "TimeoutError"
     ).ToLocalChecked();
     abortSignal->signalAbort(e);
-}
-
-void appendIfAbsent(std::list<Global<Object>>& list, Isolate* isolate, Local<Object> obj) {
-    auto target = Global<Object>(isolate, obj);
-    for (const auto& g : list) {
-        if (g == target) {
-            return;
-        }
-    }
-    list.emplace_back(std::move(target));
 }
 
 void newAbortSignal(const FunctionCallbackInfo<Value>& info) {
@@ -112,7 +134,7 @@ void any(const FunctionCallbackInfo<Value>& info) {
         throwTypeError(isolate, "parameter 1 is not iterable");
         return;
     }
-    v8::Local<v8::Function> next;
+    Local<Function> next;
     if (!fromObject(context, iterator, "next", next)) {
         throwTypeError(isolate, "parameter 1 is not iterable");
         return;
@@ -260,25 +282,6 @@ void AbortSignal::addAlgorithm(Local<Function> func) {
     abortAlgorithms.emplace_back(isolate, func);
 }
 
-void AbortSignal::runAbortSteps() {
-    auto isolate = env->getIsolate();
-    HandleScope handleScope(isolate);
-    auto context = env->getContext();
-    auto recv = v8::Undefined(isolate);
-    for (const auto& algorithm : abortAlgorithms) {
-        auto func = algorithm.Get(isolate);
-        Local<Value> result;
-        if (!func->Call(context, recv, 0, nullptr).ToLocal(&result)) {
-            KUN_LOG_ERR("Failed to invoke 'algorithm'");
-        }
-    }
-    abortAlgorithms.clear();
-    auto eventObj = newInstance(context, "Event", "abort").ToLocalChecked();
-    auto event = InternalField<Event>::get(eventObj, 0);
-    event->isTrusted = true;
-    dispatchEvent(event);
-}
-
 void AbortSignal::signalAbort(Local<Value> value) {
     auto isolate = env->getIsolate();
     HandleScope handleScope(isolate);
@@ -304,9 +307,9 @@ void AbortSignal::signalAbort(Local<Value> value) {
             dependentSignalsToAbort.emplace_back(abortSignal);
         }
     }
-    runAbortSteps();
+    runAbortSteps(this);
     for (const auto& abortSignal : dependentSignalsToAbort) {
-        abortSignal->runAbortSteps();
+        runAbortSteps(abortSignal);
     }
     sourceSignals.clear();
     dependentSignals.clear();
@@ -345,7 +348,7 @@ Local<Object> AbortSignal::timeout(Environment* env, int64_t milliseconds) {
     auto globalThis = context->Global();
     Local<Function> setTimeout;
     if (!fromObject(context, globalThis, "setTimeout", setTimeout)) {
-        KUN_LOG_ERR("globalThis.setTimeout is not found");
+        KUN_LOG_ERR("globalThis.setTimeout is not defined");
         return handleScope.Escape(signal);
     }
     auto recv = v8::Undefined(isolate);

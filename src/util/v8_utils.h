@@ -263,6 +263,7 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
     static_assert(
         std::is_same_v<T, v8::Local<v8::Value>> ||
         std::is_same_v<T, v8::Local<v8::External>> ||
+        std::is_same_v<T, v8::Local<v8::Object>> ||
         std::is_same_v<T, v8::Local<v8::String>> ||
         std::is_same_v<T, v8::Local<v8::Number>> ||
         std::is_same_v<T, v8::Local<v8::Boolean>> ||
@@ -289,6 +290,11 @@ inline bool fromInternal(v8::Local<v8::Object> obj, int index, T& t) {
     } else if constexpr (std::is_same_v<T, v8::Local<v8::External>>) {
         if (value->IsExternal()) {
             t = value.As<v8::External>();
+            success = true;
+        }
+    } else if constexpr (std::is_same_v<T, v8::Local<v8::Object>>) {
+        if (!value->IsNull() && value->IsObject()) {
+            t = value.As<v8::Object>();
             success = true;
         }
     } else if constexpr (std::is_same_v<T, v8::Local<v8::String>>) {

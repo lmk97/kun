@@ -12,6 +12,7 @@ class AbortSignal;
 class Console;
 class Event;
 class EventTarget;
+class TextDecoder;
 
 }
 
@@ -81,7 +82,8 @@ private:
     enum {
         CONSOLE = 0,
         EVENT,
-        EVENT_TARGET
+        EVENT_TARGET,
+        TEXT_DECODER
     };
 
     template<typename U>
@@ -89,7 +91,8 @@ private:
         TypeValue<web::AbortSignal, EVENT_TARGET>,
         TypeValue<web::Console, CONSOLE>,
         TypeValue<web::Event, EVENT>,
-        TypeValue<web::EventTarget, EVENT_TARGET>
+        TypeValue<web::EventTarget, EVENT_TARGET>,
+        TypeValue<web::TextDecoder, TEXT_DECODER>
     >;
 };
 

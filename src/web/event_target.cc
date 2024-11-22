@@ -287,8 +287,8 @@ void addEventListener(const FunctionCallbackInfo<Value>& info) {
     ) {
         return;
     }
-    const auto len = info.Length();
-    if (len < 2 || info[1]->IsNullOrUndefined()) {
+    const auto argNum = info.Length();
+    if (argNum < 2 || info[1]->IsNullOrUndefined()) {
         return;
     }
     auto context = isolate->GetCurrentContext();
@@ -306,7 +306,7 @@ void addEventListener(const FunctionCallbackInfo<Value>& info) {
     }
     auto type = toBString(context, info[0]);
     listener.passive = false;
-    if (len > 2) {
+    if (argNum > 2) {
         flattenOptions(context, info[2], listener);
     }
     auto recv = info.This();
@@ -329,8 +329,8 @@ void removeEventListener(const FunctionCallbackInfo<Value>& info) {
     ) {
         return;
     }
-    const auto len = info.Length();
-    if (len < 2 || info[1]->IsNullOrUndefined()) {
+    const auto argNum = info.Length();
+    if (argNum < 2 || info[1]->IsNullOrUndefined()) {
         return;
     }
     auto context = isolate->GetCurrentContext();
@@ -342,7 +342,7 @@ void removeEventListener(const FunctionCallbackInfo<Value>& info) {
         }
     }
     bool capture = false;
-    if (len > 2) {
+    if (argNum > 2) {
         if (info[2]->IsObject()) {
             auto options = info[2].As<Object>();
             fromObject(context, options, "capture", capture);

@@ -93,16 +93,16 @@ void newDOMException(const FunctionCallbackInfo<Value>& info) {
         return;
     }
     auto context = isolate->GetCurrentContext();
-    const auto len = info.Length();
+    const auto argNum = info.Length();
     auto message = String::Empty(isolate);
-    if (len > 0) {
+    if (argNum > 0) {
         Local<String> v8Str;
         if (info[0]->ToString(context).ToLocal(&v8Str)) {
             message = v8Str;
         }
     }
     auto name = String::NewFromUtf8Literal(isolate, "Error");
-    if (len > 1) {
+    if (argNum > 1) {
         Local<String> v8Str;
         if (info[1]->ToString(context).ToLocal(&v8Str)) {
             name = v8Str;

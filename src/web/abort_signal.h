@@ -29,8 +29,6 @@ public:
 
     void addAlgorithm(v8::Local<v8::Function> func);
 
-    void runAbortSteps();
-
     void signalAbort(v8::Local<v8::Value> value);
 
     static v8::Local<v8::Object> abort(Environment* env, v8::Local<v8::Value> value);
